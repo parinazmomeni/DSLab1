@@ -2,7 +2,6 @@ package client.tcp;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -13,12 +12,11 @@ public class TcpListener implements Runnable {
 
 	private Client client;
 	private ServerSocket socket;
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	public TcpListener(Client client, ServerSocket socket) {
 		this.client = client;
 		this.socket = socket;
-		this.logger = new Logger();
 	}
 
 	@Override
@@ -28,14 +26,10 @@ public class TcpListener implements Runnable {
 
 		try {
 			while (client.isActive()) {
-				Socket s = socket.accept();
-
-				TcpWorker tcpWorker = new TcpWorker(client, s);
-
+				TcpWorker tcpWorker = new TcpWorker(client, socket.accept());
 				synchronized (client.getTcpWorkerList()) {
 					client.getTcpWorkerList().add(tcpWorker);
 				}
-
 				threadPool.execute(tcpWorker);
 			}
 

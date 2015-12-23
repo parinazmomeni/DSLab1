@@ -14,12 +14,11 @@ public class TcpListener implements Runnable {
 
 	private ServerSocket socket;
 	private Chatserver chatServer;
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	public TcpListener(Chatserver chatServer, ServerSocket socket) {
 		this.chatServer = chatServer;
 		this.socket = socket;
-		this.logger = new Logger();
 	}
 
 	@Override

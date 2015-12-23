@@ -13,21 +13,18 @@ public class UdpWorker implements Runnable {
 	private Chatserver chatServer;
 	private DatagramPacket packet;
 	private DatagramSocket socket;
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	public UdpWorker(Chatserver chatServer, DatagramPacket packet, DatagramSocket socket) {
 		this.chatServer = chatServer;
 		this.packet = packet;
 		this.socket = socket;
-		this.logger = new Logger();
 	}
 
 	@Override
 	public void run() {
 		byte[] data = packet.getData();
-		String out = new String(data);
-		out = out.trim();
-
+		String out = (new String(data)).trim();
 		String result = null;
 
 		if (out.equals("!list")) {
@@ -47,7 +44,6 @@ public class UdpWorker implements Runnable {
 	}
 
 	private String getOnlineUsers() {
-
 		String userList = "Online users:\n";
 
 		synchronized (chatServer.getUsers()) {

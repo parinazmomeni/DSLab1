@@ -2,34 +2,28 @@ package client.tcp;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Socket;
-
 import client.Client;
 import util.Logger;
+import util.Streams;
 
 public class TcpReader implements Runnable {
 
 	private Socket socket;
 	private Client client;
 	private String response;
-	private Logger logger;
-	private Object lock;
+	private Logger logger = new Logger();
+	private Object lock = new Object();
 
 	public TcpReader(Client client, Socket socket) {
 		this.client = client;
 		this.socket = socket;
-		this.logger = new Logger();
-		this.lock = new Object();
 	}
 
 	@Override
 	public void run() {
-		try {
-			BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-			String tmp = null;
-			tmp = reader.readLine();
+		try(BufferedReader reader = Streams.getBufferedReader(socket);) {
+			String tmp = reader.readLine();
 			while (client.isActive() && tmp != null) {
 				synchronized (lock) {
 					if (tmp.startsWith("!public")) {

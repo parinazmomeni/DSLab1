@@ -27,6 +27,7 @@ import client.udp.UdpReader;
 import util.ComponentFactory;
 import util.Config;
 import util.Logger;
+import util.Streams;
 
 public class Client implements IClientCli, Runnable {
 
@@ -41,7 +42,7 @@ public class Client implements IClientCli, Runnable {
 	private boolean active = false;
 
 	private String hostname;
-	private String lastMsg;
+	private String lastMsg = "";
 
 	private int tcpPort;
 	private int udpPort;
@@ -49,7 +50,7 @@ public class Client implements IClientCli, Runnable {
 	private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
 	private ExecutorService threadPool;
 
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	private Thread tcpReaderThread;
 	private Thread udpReaderThread;
@@ -66,9 +67,6 @@ public class Client implements IClientCli, Runnable {
 		shell.register(this);
 
 		threadPool = Executors.newCachedThreadPool();
-		logger = new Logger();
-
-		lastMsg = "";
 	}
 
 	private void acquirePorts() throws IOException {
@@ -77,7 +75,7 @@ public class Client implements IClientCli, Runnable {
 		udpSocket = new DatagramSocket();
 
 		// TCP Output Stream
-		tcpOutputStream = new PrintWriter(tcpSocket.getOutputStream(), true);
+		tcpOutputStream = Streams.getPrintWriter(tcpSocket);
 	}
 
 	@Override
@@ -159,14 +157,14 @@ public class Client implements IClientCli, Runnable {
 		Socket s = null;
 		try {
 			s = new Socket(words[0], Integer.parseInt(words[1]));
-			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-			PrintWriter out = new PrintWriter(s.getOutputStream(), true);
+			BufferedReader in = Streams.getBufferedReader(s);
+			PrintWriter out = Streams.getPrintWriter(s);
 
 			out.println("msg " + message);
 
 			String response = in.readLine();
 
-			if (response == null) {
+			if (response == null && s != null) {
 				s.close();
 				return "Error occured during client to client communication";
 			}
@@ -178,14 +176,13 @@ public class Client implements IClientCli, Runnable {
 		} catch (NumberFormatException e) {
 			return "Could not convert port: " + words[1] + " to integer.";
 		} finally {
-			s.close();
+			if ( s!= null) s.close();
 		}
 	}
 
 	@Override
 	@Command
 	public String lookup(String username) throws IOException {
-
 		tcpOutputStream.println("!lookup" + " " + username);
 		return tcpReader.getResponse();
 	}

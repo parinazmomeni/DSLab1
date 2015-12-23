@@ -28,11 +28,11 @@ import util.Logger;
 
 public class Chatserver implements IChatserverCli, Runnable {
 
-	private Logger logger;
+	private Logger logger = new Logger();
 	private Shell shell;
 	private Config config;
 
-	private boolean online;
+	private boolean online = true;
 	private boolean active = true;
 
 	private ExecutorService threadPool;
@@ -51,8 +51,6 @@ public class Chatserver implements IChatserverCli, Runnable {
 
 	public Chatserver(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
 		this.config = config;
-		this.online = true;
-		this.logger = new Logger();
 
 		shell = new Shell(componentName, userRequestStream, userResponseStream);
 		shell.register(this);
@@ -74,11 +72,8 @@ public class Chatserver implements IChatserverCli, Runnable {
 
 		for (String key : keys) {
 			int index = key.lastIndexOf(".password");
-
 			String username = key.substring(0, index);
-			User user = new User(username, userConfig.getString(key));
-
-			users.put(username, user);
+			users.put(username, new User(username, userConfig.getString(key)));
 		}
 	}
 

@@ -2,7 +2,6 @@ package chatserver.tcp;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -12,24 +11,24 @@ import java.util.Map;
 import chatserver.Chatserver;
 import model.User;
 import util.Logger;
+import util.Streams;
 
 public class TcpWorker implements Runnable {
 	private Chatserver chatServer;
 	private Socket client;
 	private User currentUser;
 	private String username;
-
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	public TcpWorker(Chatserver chatServer, Socket client) {
 		this.chatServer = chatServer;
 		this.client = client;
-		this.logger = new Logger();
 	}
 
 	@Override
 	public void run() {
-		try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(client.getInputStream())); PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
+		try (BufferedReader bufferedReader = Streams.getBufferedReader(client); 
+				PrintWriter out = Streams.getPrintWriter(client)) {
 
 			String command = bufferedReader.readLine();
 			while (chatServer.isOnline() && command != null) {

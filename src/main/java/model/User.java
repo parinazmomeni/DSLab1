@@ -68,15 +68,11 @@ public class User {
     }
 
     public String toString() {
-        String text = "";
-        text += String.format("%1$-7s %2$-10s %3$s%4$d\n", userName, onlineStatus());
-
-        return text;
+        return String.format("%1$-7s %2$-10s %3$s%4$d\n", userName, onlineStatus());
     }
 
     public void setSocket(Socket client) {
         this.client = client;
-
     }
 
     public Socket getSocket() {

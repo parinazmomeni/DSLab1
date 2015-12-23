@@ -11,12 +11,11 @@ public class UdpReader implements Runnable {
 
 	private DatagramSocket udpSocket;
 	private Client client;
-	private Logger logger;
+	private Logger logger = new Logger();
 
 	public UdpReader(Client client, DatagramSocket udpSocket) {
 		this.client = client;
 		this.udpSocket = udpSocket;
-		this.logger = new Logger();
 	}
 
 	@Override
@@ -26,7 +25,6 @@ public class UdpReader implements Runnable {
 
 			while (client.isActive()) {
 				udpSocket.receive(packet);
-
 				String response = new String(packet.getData(), 0, packet.getLength());
 				logger.info(response);
 			}
