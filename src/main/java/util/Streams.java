@@ -22,7 +22,11 @@ public class Streams {
 	}
 		
 	public static BufferedWriter getBufferedWriter(OutputStream out) {
-		return new BufferedWriter(new OutputStreamWriter(out, Charset.defaultCharset()));
+		return getBufferedWriter(out, Charset.defaultCharset());
+	}
+	
+	public static BufferedWriter getBufferedWriter(OutputStream out, Charset cs) {
+		return new BufferedWriter(new OutputStreamWriter(out, cs));
 	}
 	
 	public static BufferedWriter getBufferedWriter(Socket s) throws IOException {
