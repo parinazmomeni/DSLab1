@@ -48,7 +48,7 @@ public class Client implements IClientCli, Runnable {
 	private int udpPort;
 
 	private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
-	private ExecutorService threadPool;
+	private ExecutorService threadPool = Executors.newCachedThreadPool();
 
 	private Logger logger = new Logger();
 
@@ -65,8 +65,6 @@ public class Client implements IClientCli, Runnable {
 
 		shell = new Shell(componentName, userRequestStream, userResponseStream);
 		shell.register(this);
-
-		threadPool = Executors.newCachedThreadPool();
 	}
 
 	private void acquirePorts() throws IOException {
