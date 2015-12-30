@@ -153,7 +153,7 @@ public class Client implements IClientCli, Runnable {
 	public String msg(String receiver, String message) throws IOException {
 		String address = lookup(receiver);
 		if (!address.startsWith("!address")) {
-			return "Error occured receiving address of client.";
+			return "Error occured receiving address of client. Got: "+address;
 		}
 
 		String[] hostAndPort = address.split(" ")[1].split(":");
