@@ -24,16 +24,35 @@ public class TcpWorker implements Runnable {
 		try (BufferedReader in = Streams.getBufferedReader(socket); 
 				PrintWriter out = Streams.getPrintWriter(socket)) {
 			String command = in.readLine();
-			if (client.isActive() && command != null) {
-				String[] words = command.split(" +");
-				if (words.length < 2) {
-					out.println("Wrong command: incorrect number of arguments");
+			if (!client.isActive() && command == null) {
+				return;
+			}
+			
+			if (command.contains(" !msg ")) {
+				String[] hashAndMsg = command.split(" !msg ");
+				if (hashAndMsg.length != 2) {
+					logger.error("Recieved strange command: "+command);
 					return;
 				}
-
-				String message = command.substring(4).trim();
-				logger.info(message);
-				out.println("!ack");
+				
+				String messageHash = hashAndMsg[0];
+				String message = hashAndMsg[1];
+				String controlHash = client.getHashMAC().getEncodedHash("!msg "+message);
+					
+				if (messageHash.equals(controlHash)) {
+					logger.info(hashAndMsg[1]);
+					out.println("!ack");
+					
+				} else {
+					logger.error("Hash mismatch!!! Tampered message: \""+message+"\"");
+					out.println(client.getHashMAC().getEncodedHash("!tampered "+message) + " !tampered " + message);
+				}
+				
+			} else if (command.contains(" !tampered ")) {
+				logger.error("The recieving client reported that our message has been tampered!");
+			
+			} else {
+				logger.info(command);
 			}
 		} catch (IOException e) {
 			logger.error(e.getMessage());
