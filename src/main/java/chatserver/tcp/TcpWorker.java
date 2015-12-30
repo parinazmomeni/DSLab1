@@ -29,7 +29,9 @@ public class TcpWorker implements Runnable {
 
 	@Override
 	public void run() {
-		try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(client.getInputStream())); PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
+		try {
+			BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(client.getInputStream()));
+			PrintWriter out = new PrintWriter(client.getOutputStream(), true);
 
 			String command = bufferedReader.readLine();
 			while (chatServer.isOnline() && command != null) {

@@ -1,17 +1,16 @@
 package client;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintStream;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.charset.Charset;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,9 +23,14 @@ import client.tcp.TcpListener;
 import client.tcp.TcpReader;
 import client.tcp.TcpWorker;
 import client.udp.UdpReader;
+import org.bouncycastle.util.encoders.Base64;
 import util.ComponentFactory;
 import util.Config;
+import util.Keys;
 import util.Logger;
+
+import javax.crypto.Cipher;
+import javax.crypto.NoSuchPaddingException;
 
 public class Client implements IClientCli, Runnable {
 
@@ -40,6 +44,7 @@ public class Client implements IClientCli, Runnable {
 
 	private boolean active = false;
 
+	private Config config;
 	private String hostname;
 	private String lastMsg;
 
@@ -58,6 +63,7 @@ public class Client implements IClientCli, Runnable {
 	private UdpReader udpReader;
 
 	public Client(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
+		this.config = config;
 		hostname = config.getString("chatserver.host");
 		tcpPort = config.getInt("chatserver.tcp.port");
 		udpPort = config.getInt("chatserver.udp.port");
@@ -287,7 +293,40 @@ public class Client implements IClientCli, Runnable {
 
 	@Override
 	public String authenticate(String username) throws IOException {
-		// TODO Auto-generated method stub
+
+		// generates a 32 byte secure random number
+		SecureRandom secureRandom = new SecureRandom();
+		final byte[] challenge = new byte[32];
+		secureRandom.nextBytes(challenge);
+
+		// encode challenge into Base64 format
+		byte[] base64Challenge = Base64.encode(challenge);
+
+		// generate full message
+		String message = "!authenticate " + username + " ";
+		byte[] messageByte = message.getBytes(Charset.forName("UTF-8"));
+		byte[] fullMessage = new byte[base64Challenge.length + messageByte.length];
+		for (int i = 0; i < fullMessage.length; ++i)
+		{
+			fullMessage[i] = i < messageByte.length ? messageByte[i] : base64Challenge[i - base64Challenge.length];
+		}
+
+		// initialize RSA cipher with chatserver's public key
+		// and encode full message
+		Cipher cipher = null;
+		byte[] encryptedMessage = null;
+		String chatServeKeyFilepath = config.getString("chatserver.key");
+		try {
+			cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
+			cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(chatServeKeyFilepath)));
+			encryptedMessage = cipher.doFinal(fullMessage);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during authentication";
+		}
+
+		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
+		tcpOutputStream.println(base64EncryptedMessage);
 		return null;
 	}
 }

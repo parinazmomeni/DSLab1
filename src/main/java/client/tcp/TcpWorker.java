@@ -23,7 +23,9 @@ public class TcpWorker implements Runnable {
 
 	@Override
 	public void run() {
-		try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream())); PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+		try {
+			BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+			PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
 			String command = in.readLine();
 			if (client.isActive() && command != null) {
