@@ -104,7 +104,6 @@ public class Client implements IClientCli, Runnable {
 
 			logger.info("Client startet ...");
 
-			threadPool.shutdown();
 		} catch (UnknownHostException e) {
 			logger.error("Hostname: " + config.getString("chatserver.host") + "is unknown.");
 		} catch (IOException e) {
@@ -241,6 +240,8 @@ public class Client implements IClientCli, Runnable {
 	}
 
 	private void cleanUp() throws IOException {
+		threadPool.shutdown();
+		
 		if (tcpSocket != null) {
 			tcpSocket.close();
 		}
