@@ -151,7 +151,7 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	@Command
 	public String msg(String receiver, String message) throws IOException {
-		String address = lookup(receiver);
+		String address = lookup(receiver.trim());
 		if (!address.startsWith("!address")) {
 			return "Error occured receiving address of client. Got: "+address;
 		}
