@@ -47,7 +47,10 @@ public class TcpWorker implements Runnable {
 			
 			String messageHash = msgParts[0];
 			String messageCommand = msgParts[1];
-			String message = command.substring(messageHash.length()+1+messageCommand.length()+1);
+			String message = "";
+			if (command.length() > messageHash.length()+1+messageCommand.length()+1) {
+				message = command.substring(messageHash.length()+1+messageCommand.length()+1);
+			}
 			String controlHash = client.getHashMAC().getEncodedHash(messageCommand+" "+message);
 			
 			if (!messageHash.equals(controlHash)) {
