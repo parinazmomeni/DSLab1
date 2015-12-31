@@ -46,6 +46,10 @@ public class TcpReader implements Runnable {
 	public String getResponse() {
 		return response;
 	}
+	
+	public void clearResponse() {
+		response = "";
+	}
 
 	public Object getLock() {
 		return lock;

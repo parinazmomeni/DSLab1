@@ -1,10 +1,5 @@
 package client;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintStream;
-import java.io.PrintWriter;
 import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -186,9 +181,26 @@ public class Client implements IClientCli, Runnable {
 
 	@Override
 	@Command
-	public String lookup(String username) throws IOException {
+	public String lookup(String username) throws IOException{
+		tcpReader.clearResponse();
 		tcpOutputStream.println("!lookup" + " " + username);
-		return tcpReader.getResponse();
+		String address = "";
+		int maxLoops = 20;
+		try {
+			int count = 0;
+			while (true) {
+				count++;
+				address = tcpReader.getResponse();
+				if (count == maxLoops || address.startsWith("!address")) {
+					return address;
+				} else {
+					Thread.sleep(250);
+				}
+			}
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+			return address;
+		}
 	}
 
 	@Override
