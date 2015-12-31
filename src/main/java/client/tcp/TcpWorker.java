@@ -47,11 +47,9 @@ public class TcpWorker implements Runnable {
 			
 			String messageHash = msgParts[0];
 			String messageCommand = msgParts[1];
-			String message = "";
-			if (command.length() > messageHash.length()+1+messageCommand.length()+1) {
-				message = command.substring(messageHash.length()+1+messageCommand.length()+1);
-			}
-			String controlHash = client.getHashMAC().getEncodedHash(messageCommand+" "+message);
+			String messageCommandAndBody = command.substring(messageHash.length()).trim();
+			String message = messageCommandAndBody.replaceFirst(messageCommand, "").trim();
+			String controlHash = client.getHashMAC().getEncodedHash(messageCommandAndBody);
 			
 			if (!messageHash.equals(controlHash)) {
 				logger.error("Hash mismatch!!! Tampered message: \""+message+"\". Sending tampered warning to remote client.");
