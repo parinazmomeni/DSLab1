@@ -28,32 +28,35 @@ public class TcpWorker implements Runnable {
 				return;
 			}
 			
-			if (command.contains(" !msg ")) {
-				String[] hashAndMsg = command.split(" !msg ");
-				if (hashAndMsg.length != 2) {
-					logger.error("Recieved strange command: "+command);
-					return;
-				}
+			String[] msgParts = command.split(" ");
+			if (msgParts.length < 2) {
+				logger.error("Recieved strange message: "+command);
+				return;
+			}
+			
+			String messageHash = msgParts[0];
+			String messageCommand = msgParts[1];
+			String message = command.substring(messageHash.length()+1+messageCommand.length()+1);
+			String controlHash = client.getHashMAC().getEncodedHash(messageCommand+" "+message);
+			
+			if (!messageHash.equals(controlHash)) {
+				logger.error("Hash mismatch!!! Tampered message: \""+message+"\". Sending tampered warning to remote client.");
+				out.println(client.getHashMAC().getEncodedHash("!tampered "+message) + " !tampered " + message);
+			
+			} else if (messageCommand.equals("!msg")) {
+				logger.info(message);
+				out.println(client.getHashMAC().getEncodedHash("!ack") + " !ack");
 				
-				String messageHash = hashAndMsg[0];
-				String message = hashAndMsg[1];
-				String controlHash = client.getHashMAC().getEncodedHash("!msg "+message);
-					
-				if (messageHash.equals(controlHash)) {
-					logger.info(hashAndMsg[1]);
-					out.println("!ack");
-					
-				} else {
-					logger.error("Hash mismatch!!! Tampered message: \""+message+"\"");
-					out.println(client.getHashMAC().getEncodedHash("!tampered "+message) + " !tampered " + message);
-				}
-				
-			} else if (command.contains(" !tampered ")) {
+			} else if (messageCommand.equals("!tampered")) {
 				logger.error("The recieving client reported that our message has been tampered!");
 			
+			} else if (messageCommand.equals("!ack")) {
+				logger.info(messageCommand);
+				
 			} else {
-				logger.info(command);
+				logger.error("Recieved strange message: "+command);
 			}
+			
 		} catch (IOException e) {
 			logger.error(e.getMessage());
 		}
