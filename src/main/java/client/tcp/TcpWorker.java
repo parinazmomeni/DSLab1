@@ -31,7 +31,9 @@ public class TcpWorker implements Runnable {
 				PrintWriter out = Streams.getPrintWriter(socket)) {
 			
 			if (messageToRemote != null) {
-				out.println(client.getHashMAC().getEncodedHash(messageToRemote) + " " + messageToRemote);
+				String hashedMessage = client.getHashMAC().getEncodedHash(messageToRemote) + " " + messageToRemote;
+				assert hashedMessage.matches("[a-zA-Z0-9/+]{43}= [\\s[^\\s]]+");
+				out.println(hashedMessage);
 			}
 			
 			String command = in.readLine();
