@@ -11,20 +11,30 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.bind.DatatypeConverter;
 
+/**
+ * Does hashing and base64 encoding of messages.
+ * @author Stefan
+ *
+ */
 public class HashMAC {
 	private static final String algorithm = "HmacSHA256";
 	private static final Charset charset = Charset.forName("UTF-8");
 	private Mac messageAuthentificationCode;
 	
 	public HashMAC(String pathToKeyFile) throws InvalidKeyException, NoSuchAlgorithmException, IOException {
+		this(Files.readAllBytes(new File(pathToKeyFile).toPath()));
+	}
+	
+	public HashMAC(byte[] secret) throws InvalidKeyException, NoSuchAlgorithmException {
 		messageAuthentificationCode = Mac.getInstance(algorithm);
-		messageAuthentificationCode.init(new SecretKeySpec(getSecretKey(pathToKeyFile), algorithm));
+		messageAuthentificationCode.init(new SecretKeySpec(secret, algorithm));
 	}
 	
-	private byte[] getSecretKey(String pathToKeyFile) throws IOException{
-		return Files.readAllBytes(new File(pathToKeyFile).toPath());
-	}
-	
+	/**
+	 * Creates and encodes the hash.
+	 * @param msg
+	 * @return hash in base64
+	 */
 	public String getEncodedHash(String msg) {
 		return DatatypeConverter.printBase64Binary(messageAuthentificationCode.doFinal(msg.getBytes(charset)));
 	}

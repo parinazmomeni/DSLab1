@@ -164,14 +164,8 @@ public class Client implements IClientCli, Runnable {
 			return "Could not convert port: " + hostAndPort[1].trim() + " to integer.";
 		}
 		
-		Socket s = new Socket(host, port);
-		BufferedReader in = Streams.getBufferedReader(s);
-		PrintWriter out = Streams.getPrintWriter(s);
-		out.println(hashMAC.getEncodedHash("!msg "+message) + " !msg " + message);
-		String response = in.readLine();
-		out.close();
-		in.close();
-		s.close();
+		TcpWorker worker = new TcpWorker(this, new Socket(host, port));
+		String response = worker.send("!msg " + message);
 		if (response == null) {
 			return "Error occured during client to client communication";
 		} else {
