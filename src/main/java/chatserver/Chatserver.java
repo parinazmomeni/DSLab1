@@ -87,7 +87,7 @@ public class Chatserver implements IChatserverCli, Runnable {
 
 	private void createListeners() {
 		// Create TCP Listener
-		tcpListener = new TcpListener(this, tcpSocket);
+		tcpListener = new TcpListener(this, tcpSocket, config);
 
 		// Create UDP Listener
 		udpListener = new UdpListener(this, udpSocket);

@@ -8,6 +8,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -81,14 +82,16 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	public void run() {
 		try {
+
 			hashMAC = new HashMAC(config.getString("hmac.key"));
-			
+
 			acquirePorts();
+
 			active = true;
 
 			tcpReader = new TcpReader(this, tcpSocket);
 			udpReader = new UdpReader(this, udpSocket);
-			
+
 			tcpReaderThread = new Thread(tcpReader);
 			udpReaderThread = new Thread(udpReader);
 
@@ -288,12 +291,14 @@ public class Client implements IClientCli, Runnable {
 	// implement them for the first submission. ---
 
 	@Override
+	@Command
 	public String authenticate(String username) throws IOException {
 
 		// generates a 32 byte secure random number
 		SecureRandom secureRandom = new SecureRandom();
 		final byte[] challenge = new byte[32];
 		secureRandom.nextBytes(challenge);
+		logger.info(new String(challenge, StandardCharsets.UTF_8));
 
 		// encode challenge into Base64 format
 		byte[] base64Challenge = Base64.encode(challenge);
@@ -304,9 +309,11 @@ public class Client implements IClientCli, Runnable {
 		byte[] fullMessage = new byte[base64Challenge.length + messageByte.length];
 		for (int i = 0; i < fullMessage.length; ++i)
 		{
-			fullMessage[i] = i < messageByte.length ? messageByte[i] : base64Challenge[i - base64Challenge.length];
+			fullMessage[i] = i < messageByte.length ? messageByte[i] : base64Challenge[i - messageByte.length];
 		}
 
+
+		logger.info(new String(fullMessage, StandardCharsets.UTF_8));
 		// initialize RSA cipher with chatserver's public key
 		// and encode full message
 		Cipher cipher = null;
@@ -322,7 +329,8 @@ public class Client implements IClientCli, Runnable {
 		}
 
 		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
-		tcpOutputStream.println(base64EncryptedMessage);
+		logger.info(new String(base64EncryptedMessage, StandardCharsets.UTF_8));
+		tcpOutputStream.println(new String(base64EncryptedMessage,StandardCharsets.UTF_8));
 		return null;
 	}
 }
