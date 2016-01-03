@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.security.Key;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,8 @@ import util.Logger;
 import util.Streams;
 
 import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 
 public class Client implements IClientCli, Runnable {
 
@@ -59,6 +62,10 @@ public class Client implements IClientCli, Runnable {
 	private UdpReader udpReader;
 	
 	private HashMAC hashMAC;
+	private String user;
+
+	private byte[] ivVector;
+	private SecretKey secretKey;
 
 	public Client(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
 		this.config = config;
@@ -89,7 +96,7 @@ public class Client implements IClientCli, Runnable {
 
 			active = true;
 
-			tcpReader = new TcpReader(this, tcpSocket);
+			tcpReader = new TcpReader(this, tcpSocket, config);
 			udpReader = new UdpReader(this, udpSocket);
 
 			tcpReaderThread = new Thread(tcpReader);
@@ -294,26 +301,27 @@ public class Client implements IClientCli, Runnable {
 	@Command
 	public String authenticate(String username) throws IOException {
 
+		this.user = username;
+
 		// generates a 32 byte secure random number
 		SecureRandom secureRandom = new SecureRandom();
 		final byte[] challenge = new byte[32];
 		secureRandom.nextBytes(challenge);
-		logger.info(new String(challenge, StandardCharsets.UTF_8));
 
 		// encode challenge into Base64 format
 		byte[] base64Challenge = Base64.encode(challenge);
+		tcpReader.setChallenge(base64Challenge);
 
 		// generate full message
-		String message = "!authenticate " + username + " ";
-		byte[] messageByte = message.getBytes(Charset.forName("UTF-8"));
+		//String message = "!authenticate " + username + " ";
+		String fullMessage = "!authenticate " + username + " " + new String(base64Challenge,StandardCharsets.UTF_8);
+		/*byte[] messageByte = message.getBytes(Charset.forName("UTF-8"));
 		byte[] fullMessage = new byte[base64Challenge.length + messageByte.length];
 		for (int i = 0; i < fullMessage.length; ++i)
 		{
 			fullMessage[i] = i < messageByte.length ? messageByte[i] : base64Challenge[i - messageByte.length];
-		}
+		}*/
 
-
-		logger.info(new String(fullMessage, StandardCharsets.UTF_8));
 		// initialize RSA cipher with chatserver's public key
 		// and encode full message
 		Cipher cipher = null;
@@ -322,15 +330,42 @@ public class Client implements IClientCli, Runnable {
 		try {
 			cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
 			cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(chatServeKeyFilepath)));
-			encryptedMessage = cipher.doFinal(fullMessage);
+			encryptedMessage = cipher.doFinal(fullMessage.getBytes(Charset.forName("UTF-8")));
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during authentication";
 		}
 
 		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
-		logger.info(new String(base64EncryptedMessage, StandardCharsets.UTF_8));
 		tcpOutputStream.println(new String(base64EncryptedMessage,StandardCharsets.UTF_8));
+
+		String response = tcpReader.getResponse();
+		if(!response.startsWith("!")) { return response; }
+
+		String thirdMessage = response.substring(1);
+		tcpOutputStream.println(encodeMessage(thirdMessage));
+
 		return null;
 	}
+
+	private String encodeMessage(String msg) {
+
+		Cipher cipher = null;
+		byte[] encryptedMessage = null;
+		byte[] originalMessage = msg.getBytes(Charset.forName("UTF-8"));
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+			encryptedMessage = cipher.doFinal(originalMessage);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during authentication";
+		}
+
+		return new String(encryptedMessage,StandardCharsets.UTF_8);
+	}
+
+	public String getUserName() { return user; }
+	public void setSecretKey(SecretKey secretKey) { this.secretKey = secretKey; }
+	public void setIvVector(byte[] ivVector) { this.ivVector = ivVector; }
 }

@@ -22,6 +22,7 @@ import util.Streams;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 
 public class TcpWorker implements Runnable {
 	private Chatserver chatServer;
@@ -29,8 +30,13 @@ public class TcpWorker implements Runnable {
 	private Config config;
 	private User currentUser;
 	private String username;
+	private final String B64 = "a-zA-Z0-9/+";
+	private byte[] serverChallenge;
+	private byte[] clientChallenge;
+	private byte[] ivVector;
+	private SecretKey secretKey;
+
 	private Logger logger = new Logger();
-	final String B64 = "a-zA-Z0-9/+";
 
 	public TcpWorker(Chatserver chatServer, Socket client, Config config) {
 		this.chatServer = chatServer;
@@ -289,11 +295,11 @@ public class TcpWorker implements Runnable {
 	private String decryptMessage(byte[] msg){
 
 		logger.info("Decrypt message");
-		logger.info(new String(msg, StandardCharsets.UTF_8));
+
 		// decode challenge from Base64 format
 		byte[] base64Message = Base64.decode(msg);
 		String firstMessage = new String(base64Message, StandardCharsets.UTF_8);
-		assert firstMessage.matches("!authenticate [\\w\\.]+["+B64+"]{43}="):"1st  message ";
+		logger.info(firstMessage);
 
 		// decrypt message with chatserver's private key
 		Cipher cipher = null;
@@ -310,20 +316,56 @@ public class TcpWorker implements Runnable {
 
 		// decrypt every argument from Base64 format
 		String str = new String(decryptedMessage, StandardCharsets.UTF_8);
-		logger.info(str);
+		assert str.matches("!authenticate [\\w\\.]+["+B64+"]{43}="):"1st  message ";
+
 		String[] message = str.split(" ");
+		clientChallenge = message[2].getBytes(Charset.forName("UTF-8"));
 		String finalMessage = message[0] + " " + message[1];
 
-		//for(int i = 1; i < message.length; ++i) {
-		logger.info(message[2]);
-			byte[] base64Decrypt = Base64.decode(message[2]);
-			str = new String(base64Decrypt, StandardCharsets.UTF_8);
-		logger.info(str);
-			finalMessage += " " + str;
-			logger.info(finalMessage);
-		//}
-
 		return finalMessage;
+	}
+
+	private String decodeMessage(byte[] msg){
+
+		logger.info("Decode message");
+
+		// decode challenge from Base64 format
+		byte[] base64Message = Base64.decode(msg);
+		String firstMessage = new String(base64Message, StandardCharsets.UTF_8);
+
+		// decrypt message with shared secret key
+		Cipher cipher = null;
+		byte[] decryptedMessage = null;
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.DECRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+			decryptedMessage = cipher.doFinal(base64Message);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during handshake for authentification";
+		}
+
+		return new String(decryptedMessage, StandardCharsets.UTF_8);
+	}
+
+	private String encodeMessage(String msg){
+
+		logger.info("Encode message");
+
+		// encrypt message with shared secret key
+		Cipher cipher = null;
+		byte[] encryptedMessage = null;
+		byte[] originalMessage = msg.getBytes(Charset.forName("UTF-8"));
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+			encryptedMessage = cipher.doFinal(originalMessage);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during handshake for authentification";
+		}
+
+		return new String(encryptedMessage, StandardCharsets.UTF_8);
 	}
 
 	private void authenticate(String command, PrintWriter out) {
@@ -344,16 +386,12 @@ public class TcpWorker implements Runnable {
 
 		String user = message[1];
 
-		String returnMessage = "!ok ";
-		byte[] challengeClient = message[2].getBytes(Charset.forName("UTF-8"));
+		//byte[] challengeClient = message[2].getBytes(Charset.forName("UTF-8"));
 
 		// generate a secure random numbers
 		SecureRandom secureRandom = new SecureRandom();
 		byte[] challengeServer = new byte[32];
 		secureRandom.nextBytes(challengeServer);
-
-		logger.info("cl-C: " + new String(challengeClient, StandardCharsets.UTF_8));
-		logger.info("s-C : " + new String(challengeServer, StandardCharsets.UTF_8));
 
 		// generate an AES key
 		KeyGenerator generator = null;
@@ -366,10 +404,12 @@ public class TcpWorker implements Runnable {
 		}
 		generator.init(256);
 		SecretKey key = generator.generateKey();
+		secretKey = key;
 
 		// generate IV vector
 		byte[] vectorIV = new byte[16];
 		secureRandom.nextBytes(vectorIV);
+		ivVector = vectorIV;
 
 		// get user's public key
 		String userKeyFilepath = config.getString("keys.dir")+"\\"+user+".pub.pem";
@@ -384,14 +424,12 @@ public class TcpWorker implements Runnable {
 
 		// encode everything into Base64 format
 		byte[] base64ServerChallenge = Base64.encode(challengeServer);
-		logger.info(new String(base64ServerChallenge,StandardCharsets.UTF_8));
-		byte[] base64ClientChallenge = Base64.encode(challengeClient);
-		logger.info(new String(base64ClientChallenge,StandardCharsets.UTF_8));
 		byte[] base64SecretKey = Base64.encode(key.getEncoded());
 		byte[] base64IVVector = Base64.encode(vectorIV);
-		logger.info(new String(base64IVVector,StandardCharsets.UTF_8));
 
-		String fullMessage = "!ok " + new String(base64ClientChallenge,StandardCharsets.UTF_8) + " " +
+		serverChallenge = base64ServerChallenge;
+
+		String fullMessage = "!ok " + new String(clientChallenge,StandardCharsets.UTF_8) + " " +
 				new String(base64ServerChallenge, StandardCharsets.UTF_8) + " " +
 				new String(base64SecretKey, StandardCharsets.UTF_8) + " " +
 				new String(base64IVVector, StandardCharsets.UTF_8);
