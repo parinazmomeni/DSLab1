@@ -6,8 +6,8 @@ import java.io.IOException;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 
+import cli.Shell;
 import client.Client;
 import org.bouncycastle.util.encoders.Base64;
 import util.Config;
@@ -17,20 +17,23 @@ import util.Streams;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class TcpReader implements Runnable {
 
-	private final int WAITING_FOR_AUTHORIZATION = 0;
-	private final int AUTHORIZED = 1;
+	private final int WAITING_FOR_AUTHENTICATION = 0;
+	private final int WAITING_FOR_FINAL_RESPONSE = 1;
+	private final int AUTHENTICATED = 2;
 	private final String B64 = "a-zA-Z0-9/+";
 
 	private Socket socket;
 	private Client client;
 	private String response;
 	private Config config;
+	private Shell shell;
 
-	private int status = WAITING_FOR_AUTHORIZATION;
+	private int status = WAITING_FOR_AUTHENTICATION;
 	private byte[] clientChallenge;
 	private SecretKey secretKey;
 	private byte[] ivVector;
@@ -38,31 +41,36 @@ public class TcpReader implements Runnable {
 	private Logger logger = new Logger();
 	private Object lock = new Object();
 
-	public TcpReader(Client client, Socket socket, Config config) {
+	public TcpReader(Client client, Socket socket, Config config, Shell shell) {
 		this.client = client;
 		this.socket = socket;
 		this.config = config;
+		this.shell = shell;
 	}
 
 	@Override
 	public void run() {
 		try(BufferedReader reader = Streams.getBufferedReader(socket);) {
 			String tmp = reader.readLine();
-			while (client.isActive() && tmp != null) {
+			while (client.isActive()) {
 				synchronized (lock) {
-					if (status == AUTHORIZED) {
-						if (tmp.startsWith("!public")) {
-							client.setLastMsg(tmp.substring(8).trim());
-							response = tmp.substring(8).trim();
-						} else {
-							response = tmp.trim();
+					while(status != AUTHENTICATED) {
+						if(status == WAITING_FOR_AUTHENTICATION) {
+							response = decipherMessage(tmp);
+						}else{
+							response = decodeMessage(tmp);
 						}
-					}else{
-						response = decipherMessage(tmp.getBytes(Charset.forName("UTF-8")));
+						tmp = reader.readLine();
 					}
-					logger.info(response);
+					String decodedTmp = decodeMessage(tmp);
+					if (decodedTmp.startsWith("!public")) {
+						client.setLastMsg(decodedTmp.substring(8).trim());
+						shell.writeLine(decodedTmp.substring(8).trim());
+					} else {
+						if(response.startsWith("Successfully logged out")) setStatus(WAITING_FOR_AUTHENTICATION);
+						response = decodedTmp.trim();
+					}
 				}
-
 				tmp = reader.readLine();
 			}
 		} catch (IOException e) {
@@ -84,21 +92,25 @@ public class TcpReader implements Runnable {
 
 	public void setChallenge(byte[] challenge) { clientChallenge = challenge; }
 
-	private String decipherMessage(byte[] msg) {
+	private String decipherMessage(String msg) {
+
+		if(msg.startsWith("!Error")) return msg.substring(1);
 
 		// decode challenge from Base64 format
-		byte[] base64Message = Base64.decode(msg);
+		byte[] base64Message = Base64.decode(msg.getBytes(Charset.forName("UTF-8")));
 
 		// decrypt message with client's private key
 		Cipher cipher = null;
 		byte[] decryptedMessage = null;
-		String clientKeyFilepath = config.getString("key.dir")+"\\"+client.getUserName()+".pem";
+		String clientKeyFilepath = config.getString("keys.dir")+"\\"+client.getUserName()+".pem";
+
 		try {
 			cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
 			cipher.init(Cipher.DECRYPT_MODE, Keys.readPrivatePEM(new File(clientKeyFilepath)));
 			decryptedMessage = cipher.doFinal(base64Message);
 		} catch (Exception e) {
-			return "No valid private key for this user exists. Authentication failed.";
+			logger.error(e.getClass() + ": " + e.getMessage());
+			return "Error: No valid private key for this user exists. Authentication failed.";
 		}
 
 		// decrypt every argument from Base64 format
@@ -106,7 +118,7 @@ public class TcpReader implements Runnable {
 		assert str.matches("!ok ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{22}=="):"2nd  message";
 
 		String[] message = str.split(" ");
-		if(message[1].getBytes(Charset.forName("UTF-8")) != clientChallenge) {
+		if(!message[1].equals(new String(clientChallenge, StandardCharsets.UTF_8))) {
 			return "Can't assure safe connection to server. Authentication failed.";
 		}
 
@@ -115,13 +127,28 @@ public class TcpReader implements Runnable {
 		byte[] ivVector = Base64.decode(message[4].getBytes(Charset.forName("UTF-8")));
 
 		setIvVector(ivVector);
-		setSecretKey(new SecretKeySpec(secretKey, 0, secretKey.length, "AES"));
+		setSecretKey(new SecretKeySpec(secretKey, "AES"));
 
 		return "!"+serverChallenge;
 	}
 
 	private String decodeMessage(String msg) {
-		return null;
+
+		byte[] message = Base64.decode(msg);
+
+		// decrypt message with shared secret key
+		Cipher cipher = null;
+		byte[] decryptedMessage = null;
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.DECRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+			decryptedMessage = cipher.doFinal(message);
+		} catch (Exception e) {
+			logger.error(e.getClass() + ": " + e.getMessage());
+			return "Error during handshake for authentification";
+		}
+
+		return new String(decryptedMessage, StandardCharsets.UTF_8);
 	}
 
 	private void setIvVector(byte[] ivVector) {
@@ -133,4 +160,7 @@ public class TcpReader implements Runnable {
 		this.secretKey = secretKey;
 		client.setSecretKey(secretKey);
 	}
+
+	public void setStatus(int status) { this.status = status; }
+	public int getStatus() { return status; }
 }

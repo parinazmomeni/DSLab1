@@ -9,7 +9,6 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,6 +35,12 @@ import javax.crypto.spec.IvParameterSpec;
 
 public class Client implements IClientCli, Runnable {
 
+	private final int maxLoops = 20;
+	private final int WAITING_FOR_AUTHENTICATION = 0;
+	private final int WAITING_FOR_FINAL_RESPONSE = 1;
+	private final int AUTHENTICATED = 2;
+
+	private int status = WAITING_FOR_AUTHENTICATION;
 	private PrintWriter tcpOutputStream;
 
 	private Socket tcpSocket;
@@ -47,7 +52,7 @@ public class Client implements IClientCli, Runnable {
 	private boolean active = false;
 
 	private String lastMsg = "";
-	
+
 	private Config config;
 
 	private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
@@ -60,7 +65,7 @@ public class Client implements IClientCli, Runnable {
 
 	private TcpReader tcpReader;
 	private UdpReader udpReader;
-	
+
 	private HashMAC hashMAC;
 	private String user;
 
@@ -85,7 +90,7 @@ public class Client implements IClientCli, Runnable {
 	public HashMAC getHashMAC() {
 		return hashMAC;
 	}
-	
+
 	@Override
 	public void run() {
 		try {
@@ -96,7 +101,7 @@ public class Client implements IClientCli, Runnable {
 
 			active = true;
 
-			tcpReader = new TcpReader(this, tcpSocket, config);
+			tcpReader = new TcpReader(this, tcpSocket, config, shell);
 			udpReader = new UdpReader(this, udpSocket);
 
 			tcpReaderThread = new Thread(tcpReader);
@@ -107,7 +112,7 @@ public class Client implements IClientCli, Runnable {
 
 			threadPool.execute(shell);
 
-			logger.info("Client startet ...");
+			logger.info("Client started ...");
 
 		} catch (UnknownHostException e) {
 			logger.error("Hostname: " + config.getString("chatserver.host") + "is unknown.");
@@ -117,13 +122,12 @@ public class Client implements IClientCli, Runnable {
 			logger.error(e.getMessage());
 		}
 	}
-	
+
 	public ExecutorService getThreadPool(){
 		return threadPool;
 	}
 
 	@Override
-	@Command
 	public String login(String username, String password) throws IOException {
 		tcpOutputStream.println("!login" + " " + username + " " + password);
 		return "";
@@ -132,14 +136,33 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	@Command
 	public String logout() throws IOException {
-		tcpOutputStream.println("!logout");
-		return "";
+
+		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
+
+		try {
+			tcpOutputStream.println(encodeMessage("!logout"));
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during encoding message.";
+		}
+
+		String response = getResponse();
+		tcpReader.setStatus(WAITING_FOR_AUTHENTICATION);
+		status = WAITING_FOR_AUTHENTICATION;
+		return response;
 	}
 
 	@Override
 	@Command
 	public String send(String message) throws IOException {
-		tcpOutputStream.println("!send" + " " + message);
+		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
+
+		try {
+			tcpOutputStream.println(encodeMessage("!send" + " " + message));
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during encoding message.";
+		}
 		return "";
 	}
 
@@ -156,6 +179,8 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	@Command
 	public String msg(String receiver, String message) throws IOException {
+		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
+
 		String address = lookup(receiver.trim());
 		if (!address.startsWith("!address")) {
 			return "Error occured receiving address of client. Got: "+address;
@@ -165,7 +190,7 @@ public class Client implements IClientCli, Runnable {
 		if (hostAndPort.length != 2) {
 			return "Wrong address format.";
 		}
-		
+
 		String host = hostAndPort[0];
 		int port = 0;
 		try{
@@ -173,7 +198,7 @@ public class Client implements IClientCli, Runnable {
 		} catch (NumberFormatException e) {
 			return "Could not convert port: " + hostAndPort[1].trim() + " to integer.";
 		}
-		
+
 		TcpWorker worker = new TcpWorker(this, new Socket(host, port));
 		String response = worker.send("!msg " + message);
 		if (response == null) {
@@ -186,16 +211,25 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	@Command
 	public String lookup(String username) throws IOException{
-		tcpReader.clearResponse();
-		tcpOutputStream.println("!lookup" + " " + username);
+		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
+
+		try{
+			tcpReader.clearResponse();
+			tcpOutputStream.println(encodeMessage("!lookup" + " " + username));
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during encoding message.";
+		}
+
 		String address = "";
-		int maxLoops = 20;
+
 		try {
 			int count = 0;
 			while (true) {
 				count++;
 				address = tcpReader.getResponse();
 				if (count == maxLoops || address.startsWith("!address")) {
+					tcpReader.clearResponse();
 					return address;
 				} else {
 					Thread.sleep(250);
@@ -203,13 +237,17 @@ public class Client implements IClientCli, Runnable {
 			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
+			tcpReader.clearResponse();
 			return address;
 		}
+
 	}
 
 	@Override
 	@Command
 	public String register(String address) throws IOException {
+		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
+
 		if (srvSocket != null) {
 			srvSocket.close();
 		}
@@ -226,9 +264,13 @@ public class Client implements IClientCli, Runnable {
 			logger.error("Port: " + addressPort[1] + " is not a number.");
 			return "Port: " + addressPort[1] + " is not a number.";
 		}
-		
-		tcpOutputStream.println("!register" + " " + address);
-		return "";
+		try{
+			tcpOutputStream.println(encodeMessage("!register" + " " + address));
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during encoding message.";
+		}
+		return getResponse();
 	}
 
 	public void setLastMsg(String message) {
@@ -257,7 +299,7 @@ public class Client implements IClientCli, Runnable {
 
 	private void cleanUp() throws IOException {
 		threadPool.shutdown();
-		
+
 		if (tcpSocket != null) {
 			tcpSocket.close();
 		}
@@ -301,6 +343,8 @@ public class Client implements IClientCli, Runnable {
 	@Command
 	public String authenticate(String username) throws IOException {
 
+		if(status==AUTHENTICATED) return "You are already logged in";
+
 		this.user = username;
 
 		// generates a 32 byte secure random number
@@ -313,14 +357,7 @@ public class Client implements IClientCli, Runnable {
 		tcpReader.setChallenge(base64Challenge);
 
 		// generate full message
-		//String message = "!authenticate " + username + " ";
 		String fullMessage = "!authenticate " + username + " " + new String(base64Challenge,StandardCharsets.UTF_8);
-		/*byte[] messageByte = message.getBytes(Charset.forName("UTF-8"));
-		byte[] fullMessage = new byte[base64Challenge.length + messageByte.length];
-		for (int i = 0; i < fullMessage.length; ++i)
-		{
-			fullMessage[i] = i < messageByte.length ? messageByte[i] : base64Challenge[i - messageByte.length];
-		}*/
 
 		// initialize RSA cipher with chatserver's public key
 		// and encode full message
@@ -332,40 +369,81 @@ public class Client implements IClientCli, Runnable {
 			cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(chatServeKeyFilepath)));
 			encryptedMessage = cipher.doFinal(fullMessage.getBytes(Charset.forName("UTF-8")));
 		} catch (Exception e) {
-			logger.error(e.getMessage());
+			authenticationError(e);
 			return "Error during authentication";
 		}
 
 		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
-		tcpOutputStream.println(new String(base64EncryptedMessage,StandardCharsets.UTF_8));
+		tcpOutputStream.println(new String(base64EncryptedMessage, StandardCharsets.UTF_8));
 
-		String response = tcpReader.getResponse();
-		if(!response.startsWith("!")) { return response; }
+		// get server's response with server challenge and AES information
+		tcpReader.clearResponse();
+		String response = getResponse();
 
-		String thirdMessage = response.substring(1);
-		tcpOutputStream.println(encodeMessage(thirdMessage));
-
-		return null;
-	}
-
-	private String encodeMessage(String msg) {
-
-		Cipher cipher = null;
-		byte[] encryptedMessage = null;
-		byte[] originalMessage = msg.getBytes(Charset.forName("UTF-8"));
-		try {
-			cipher = Cipher.getInstance("AES/CTR/NoPadding");
-			cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
-			encryptedMessage = cipher.doFinal(originalMessage);
-		} catch (Exception e) {
-			logger.error(e.getMessage());
-			return "Error during authentication";
+		if(!response.startsWith("!")) {
+			return response;
 		}
 
-		return new String(encryptedMessage,StandardCharsets.UTF_8);
+		String thirdMessage = response.substring(1);
+		try {
+			thirdMessage = (encodeMessage(thirdMessage));
+		} catch (Exception e) {
+			authenticationError(e);
+			return "Error during authentication.";
+		}
+
+		tcpOutputStream.println(thirdMessage);
+
+		tcpReader.setStatus(WAITING_FOR_FINAL_RESPONSE);
+
+		// get server's response with log in status
+		response = getResponse();
+
+		if(response.startsWith("!Error")) {
+			tcpReader.setStatus(WAITING_FOR_AUTHENTICATION);
+			return response;
+		}
+
+		tcpReader.setStatus(AUTHENTICATED);
+		status = AUTHENTICATED;
+		return response;
+	}
+
+	private String encodeMessage(String msg) throws Exception{
+
+		Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+		cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+		byte[] encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
+		byte[] base64encryptedMessage = Base64.encode(encryptedMessage);
+
+		return new String(base64encryptedMessage,StandardCharsets.UTF_8);
 	}
 
 	public String getUserName() { return user; }
 	public void setSecretKey(SecretKey secretKey) { this.secretKey = secretKey; }
-	public void setIvVector(byte[] ivVector) { this.ivVector = ivVector; }
+	public void setIvVector(byte[] ivVector) { this.ivVector = ivVector;
+	}
+
+	private void authenticationError(Exception e) {
+		logger.error(e.getMessage());
+		tcpReader.setStatus(WAITING_FOR_AUTHENTICATION);
+	}
+
+	private String getResponse() {
+		String response = "";
+		try {
+			while (true) {
+				response = tcpReader.getResponse();
+				if (!response.equals("")) {
+					break;
+				} else {
+					Thread.sleep(250);
+				}
+			}
+		} catch (InterruptedException e) {
+			logger.error(e.getMessage());
+		}
+		tcpReader.clearResponse();
+		return response;
+	}
 }

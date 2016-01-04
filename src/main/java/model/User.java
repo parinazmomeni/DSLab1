@@ -1,5 +1,6 @@
 package model;
 
+import javax.crypto.SecretKey;
 import java.net.InetAddress;
 import java.net.Socket;
 
@@ -7,6 +8,8 @@ public class User {
 
     private String userName;
     private String password;
+    private SecretKey secretKey;
+    private byte[] ivVector;
     private boolean online;
 
     private InetAddress address;
@@ -77,5 +80,21 @@ public class User {
 
     public Socket getSocket() {
         return this.client;
+    }
+
+    public SecretKey getSecretKey() {
+        return secretKey;
+    }
+
+    public void setSecretKey(SecretKey secretKey) {
+        this.secretKey = secretKey;
+    }
+
+    public byte[] getIvVector() {
+        return ivVector;
+    }
+
+    public void setIvVector(byte[] ivVector) {
+        this.ivVector = ivVector;
     }
 }

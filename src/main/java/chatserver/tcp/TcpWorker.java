@@ -6,7 +6,6 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Map;
@@ -30,9 +29,17 @@ public class TcpWorker implements Runnable {
 	private Config config;
 	private User currentUser;
 	private String username;
+
+	private final int WAITING_FOR_AUTHENTICATION = 0;
+	private final int WAITING_FOR_CLIENTS_PROOF = 1;
+	private final int AUTHENTICATED = 2;
 	private final String B64 = "a-zA-Z0-9/+";
-	private byte[] serverChallenge;
-	private byte[] clientChallenge;
+	private final Charset UTF_8 = Charset.forName("UTF-8");
+	private int status = WAITING_FOR_AUTHENTICATION;
+
+	private String serverChallenge;
+	private String clientChallenge;
+
 	private byte[] ivVector;
 	private SecretKey secretKey;
 
@@ -47,31 +54,32 @@ public class TcpWorker implements Runnable {
 	@Override
 	public void run() {
 		try (BufferedReader bufferedReader = Streams.getBufferedReader(client);
-				PrintWriter out = Streams.getPrintWriter(client)) {
+			 PrintWriter out = Streams.getPrintWriter(client)) {
 
 			String command = bufferedReader.readLine();
-			logger.info("Command: " + command);
-			command = decryptMessage(command.getBytes());
-
 			while (chatServer.isOnline() && command != null) {
-				//if (command.startsWith("!login")) {
-				//	login(command, out);
-				if (command.startsWith("!authenticate")) {
+				if(status == WAITING_FOR_AUTHENTICATION) {
 					authenticate(command, out);
-				} else if (command.startsWith("!logout")) {
-					logout(out);
-				} else if (command.startsWith("!send")) {
-					send(command, out);
-				} else if (command.startsWith("!lookup")) {
-					lookup(command, out);
-				} else if (command.startsWith("!register")) {
-					register(command, out);
-				} else {
-					error(command, out);
+				} else if(status == WAITING_FOR_CLIENTS_PROOF) {
+					proofClient(command, out);
+				}else {
+					command = decodeMessage(command);
+					if (command.startsWith("!authenticate")) {
+						authenticate(command, out);
+					} else if (command.startsWith("!logout")) {
+						logout(out);
+					} else if (command.startsWith("!send")) {
+						send(command, out);
+					} else if (command.startsWith("!lookup")) {
+						lookup(command, out);
+					} else if (command.startsWith("!register")) {
+						register(command, out);
+					} else {
+						error(command, out);
+					}
 				}
 
 				command = bufferedReader.readLine();
-				command = decryptMessage(command.getBytes());
 			}
 		} catch (IOException e) {
 			logger.error(e.getMessage());
@@ -104,7 +112,7 @@ public class TcpWorker implements Runnable {
 
 		String[] words = command.split(" +");
 		if (words.length < 2) {
-			out.println("Wrong command: incorrect number of arguments.");
+			out.println(encodeMessage("Wrong command: incorrect number of arguments."));
 			return;
 		}
 
@@ -115,7 +123,7 @@ public class TcpWorker implements Runnable {
 
 		synchronized (chatServer.getUsers()) {
 			if (chatServer.getUsers().size() == 1) {
-				out.println("There is no other user online.");
+				out.println(encodeMessage("There is no other user online."));
 				return;
 			}
 
@@ -130,14 +138,15 @@ public class TcpWorker implements Runnable {
 				if (u.isOnline()) {
 					Socket tmp = u.getSocket();
 					PrintWriter writer = new PrintWriter(tmp.getOutputStream(), true);
-
-					writer.println("!public " + currentUser.getUserName() + ": " + message);
+					SecretKey uKey = u.getSecretKey();
+					byte[] uIVVector = u.getIvVector();
+					writer.println(encodeMessage("!public " + currentUser.getUserName() + ": " + message, uKey, uIVVector));
 					messageSent = true;
 				}
 			}
 
 			if (!messageSent) {
-				out.println("There is no other user online.");
+				out.println(encodeMessage("There is no other user online."));
 			}
 		}
 
@@ -153,13 +162,13 @@ public class TcpWorker implements Runnable {
 
 		String[] words = command.split(" +");
 		if (words.length != 2) {
-			out.println("Wrong command: incorrect number of arguments.");
+			out.println(encodeMessage("Wrong command: incorrect number of arguments."));
 			return;
 		}
 
 		String[] addressPort = words[1].split(":");
 		if (addressPort.length != 2) {
-			out.println("Wrong command: incorrect address format.");
+			out.println(encodeMessage("Wrong command: incorrect address format."));
 			return;
 		}
 
@@ -170,23 +179,23 @@ public class TcpWorker implements Runnable {
 			try {
 				currentUser.setAddress(InetAddress.getByName(address));
 			} catch (UnknownHostException e) {
-				out.println("IP address: " + address + " is unknown.");
+				out.println(encodeMessage("IP address: " + address + " is unknown."));
 				return;
 			}
 
 			try {
 				currentUser.setPort(Integer.parseInt(port));
 			} catch (NumberFormatException e) {
-				out.println("Port: " + port + " is not a number.");
+				out.println(encodeMessage("Port: " + port + " is not a number."));
 				return;
 			}
 		}
 
-		out.println("Successfully registered address for " + currentUser.getUserName() + ".");
+		out.println(encodeMessage("Successfully registered address for " + currentUser.getUserName() + "."));
 	}
 
 	private void error(String command, PrintWriter out) {
-		out.println(command + " UNKNOWN COMMAND.");
+		out.println(encodeMessage(command + " UNKNOWN COMMAND."));
 	}
 
 	private void lookup(String command, PrintWriter out) {
@@ -199,7 +208,7 @@ public class TcpWorker implements Runnable {
 
 		String[] words = command.split(" +");
 		if (words.length != 2) {
-			out.println("Wrong command: incorrect number of arguments.");
+			out.println(encodeMessage("Wrong command: incorrect number of arguments."));
 			return;
 		}
 
@@ -209,16 +218,16 @@ public class TcpWorker implements Runnable {
 		for (User user : users.values()) {
 			if (user.getUserName().equals(otherUser)) {
 				if (user.getAddress() != null) {
-					out.println("!address " + user.getAddress().getHostAddress() + ":" + user.getPort());
+					out.println(encodeMessage("!address " + user.getAddress().getHostAddress() + ":" + user.getPort()));
 					return;
 				} else {
-					out.println(user.getUserName() + " has not registered a private address.");
+					out.println(encodeMessage(user.getUserName() + " has not registered a private address."));
 					return;
 				}
 			}
 		}
 
-		out.println(otherUser + " Wrong username or user not reachable.");
+		out.println(encodeMessage(otherUser + " Wrong username or user not reachable."));
 	}
 
 	private void login(String command, PrintWriter out) {
@@ -280,8 +289,10 @@ public class TcpWorker implements Runnable {
 		}
 
 		currentUser = null;
+		status = WAITING_FOR_AUTHENTICATION;
+		logger.info(username + " logged out.");
 
-		out.println("Successfully logged out.");
+		out.println(encodeMessage("Successfully logged out."));
 	}
 
 	public void shutDown() {
@@ -292,14 +303,56 @@ public class TcpWorker implements Runnable {
 		}
 	}
 
-	private String decryptMessage(byte[] msg){
+	private String decodeMessage(String msg){
 
-		logger.info("Decrypt message");
+		byte[] message = Base64.decode(msg.getBytes(UTF_8));
+
+		// decrypt message with shared secret key
+		Cipher cipher = null;
+		byte[] decryptedMessage = null;
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.DECRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
+			decryptedMessage = cipher.doFinal(message);
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during decoding message.";
+		}
+
+		return new String(decryptedMessage, StandardCharsets.UTF_8);
+	}
+
+	private String encodeMessage(String msg){
+		return encodeMessage(msg, secretKey, ivVector);
+	}
+
+	private String encodeMessage(String msg, SecretKey secKey, byte[] vector){
+
+		// encrypt message with shared secret key
+		Cipher cipher = null;
+		byte[] encryptedMessage = null;
+		try {
+			cipher = Cipher.getInstance("AES/CTR/NoPadding");
+			cipher.init(Cipher.ENCRYPT_MODE, secKey,new IvParameterSpec(vector));
+			encryptedMessage = cipher.doFinal(msg.getBytes(UTF_8));;
+		} catch (Exception e) {
+			logger.error(e.getMessage());
+			return "Error during handshake for authentication";
+		}
+
+		byte[] base64encryptedMessage = Base64.encode(encryptedMessage);
+		return new String(base64encryptedMessage, StandardCharsets.UTF_8);
+	}
+
+	private void authenticate(String command, PrintWriter out) {
+
+		if(status == AUTHENTICATED) {
+			out.println(encodeMessage("Already logged in."));
+			return;
+		}
 
 		// decode challenge from Base64 format
-		byte[] base64Message = Base64.decode(msg);
-		String firstMessage = new String(base64Message, StandardCharsets.UTF_8);
-		logger.info(firstMessage);
+		byte[] base64Message = Base64.decode(command.getBytes(UTF_8));
 
 		// decrypt message with chatserver's private key
 		Cipher cipher = null;
@@ -311,84 +364,36 @@ public class TcpWorker implements Runnable {
 			decryptedMessage = cipher.doFinal(base64Message);
 		} catch (Exception e) {
 			logger.error(e.getMessage());
-			return "Error during handshake for authentification";
+			out.println("!Error during handshake for authentification");
+			return;
 		}
 
 		// decrypt every argument from Base64 format
 		String str = new String(decryptedMessage, StandardCharsets.UTF_8);
-		assert str.matches("!authenticate [\\w\\.]+["+B64+"]{43}="):"1st  message ";
+		assert str.matches("!authenticate [\\w\\.]+["+B64+"]{43}="):"1st  message";
 
 		String[] message = str.split(" ");
-		clientChallenge = message[2].getBytes(Charset.forName("UTF-8"));
-		String finalMessage = message[0] + " " + message[1];
+		clientChallenge = message[2];
 
-		return finalMessage;
-	}
-
-	private String decodeMessage(byte[] msg){
-
-		logger.info("Decode message");
-
-		// decode challenge from Base64 format
-		byte[] base64Message = Base64.decode(msg);
-		String firstMessage = new String(base64Message, StandardCharsets.UTF_8);
-
-		// decrypt message with shared secret key
-		Cipher cipher = null;
-		byte[] decryptedMessage = null;
-		try {
-			cipher = Cipher.getInstance("AES/CTR/NoPadding");
-			cipher.init(Cipher.DECRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
-			decryptedMessage = cipher.doFinal(base64Message);
-		} catch (Exception e) {
-			logger.error(e.getMessage());
-			return "Error during handshake for authentification";
+		if(!str.startsWith("!authenticate")) {
+			logger.error("Wrong starting argument");
+			out.println("!Error: Wrong starting argument");
+			return;
 		}
-
-		return new String(decryptedMessage, StandardCharsets.UTF_8);
-	}
-
-	private String encodeMessage(String msg){
-
-		logger.info("Encode message");
-
-		// encrypt message with shared secret key
-		Cipher cipher = null;
-		byte[] encryptedMessage = null;
-		byte[] originalMessage = msg.getBytes(Charset.forName("UTF-8"));
-		try {
-			cipher = Cipher.getInstance("AES/CTR/NoPadding");
-			cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
-			encryptedMessage = cipher.doFinal(originalMessage);
-		} catch (Exception e) {
-			logger.error(e.getMessage());
-			return "Error during handshake for authentification";
-		}
-
-		return new String(encryptedMessage, StandardCharsets.UTF_8);
-	}
-
-	private void authenticate(String command, PrintWriter out) {
-
-		logger.info("Authentification of 1st message");
-		String[] message = command.split(" ");
 		if(message.length != 3) {
 			logger.error("Wrong number of arguments");
-			out.println("Problem with authentification.");
+			out.println("!Error during handshake for authentication.");
 			return;
 		}
-
 		if (!chatServer.getUsers().containsKey(message[1])) {
 			logger.error("Wrong username");
-			out.println("Wrong username.");
+			out.println("!Error: Wrong username.");
 			return;
 		}
 
-		String user = message[1];
+		username = message[1];
 
-		//byte[] challengeClient = message[2].getBytes(Charset.forName("UTF-8"));
-
-		// generate a secure random numbers
+		// generate a secure random number
 		SecureRandom secureRandom = new SecureRandom();
 		byte[] challengeServer = new byte[32];
 		secureRandom.nextBytes(challengeServer);
@@ -399,59 +404,81 @@ public class TcpWorker implements Runnable {
 			generator = KeyGenerator.getInstance("AES");
 		} catch (NoSuchAlgorithmException e) {
 			logger.error(e.getMessage());
-			out.println("Error during authentification.");
+			out.println("!Error during authentication.");
 			return;
 		}
 		generator.init(256);
-		SecretKey key = generator.generateKey();
-		secretKey = key;
+		secretKey = generator.generateKey();
 
 		// generate IV vector
-		byte[] vectorIV = new byte[16];
-		secureRandom.nextBytes(vectorIV);
-		ivVector = vectorIV;
+		ivVector = new byte[16];
+		secureRandom.nextBytes(ivVector);
 
-		// get user's public key
-		String userKeyFilepath = config.getString("keys.dir")+"\\"+user+".pub.pem";
-		Key userPublicKey = null;
-		try {
-			userPublicKey = Keys.readPrivatePEM(new File(userKeyFilepath));
-		} catch (IOException e) {
-			logger.error(e.getMessage());
-			out.println("Error during authentification.");
-			return;
-		}
+		// get user's public key's path
+		String userKeyFilepath = config.getString("keys.dir")+"\\"+username+".pub.pem";
 
 		// encode everything into Base64 format
 		byte[] base64ServerChallenge = Base64.encode(challengeServer);
-		byte[] base64SecretKey = Base64.encode(key.getEncoded());
-		byte[] base64IVVector = Base64.encode(vectorIV);
+		byte[] base64SecretKey = Base64.encode(secretKey.getEncoded());
+		byte[] base64IVVector = Base64.encode(ivVector);
 
-		serverChallenge = base64ServerChallenge;
+		serverChallenge = new String(base64ServerChallenge, StandardCharsets.UTF_8);
 
-		String fullMessage = "!ok " + new String(clientChallenge,StandardCharsets.UTF_8) + " " +
+		String fullMessage = "!ok " + clientChallenge + " " +
 				new String(base64ServerChallenge, StandardCharsets.UTF_8) + " " +
 				new String(base64SecretKey, StandardCharsets.UTF_8) + " " +
 				new String(base64IVVector, StandardCharsets.UTF_8);
-		byte[] fullMessageByte = fullMessage.getBytes();
 
 		// initialize RSA cipher with user's public key
 		// and encode full message
-		Cipher cipher = null;
 		byte[] encryptedMessage = null;
 		try {
 			cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
-			cipher.init(Cipher.ENCRYPT_MODE, userPublicKey);
-			encryptedMessage = cipher.doFinal(fullMessageByte);
+			cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(userKeyFilepath)));
+			encryptedMessage = cipher.doFinal(fullMessage.getBytes(UTF_8));
 		} catch (Exception e) {
 			logger.error(e.getMessage());
-			out.println("Error during authentification.");
+			out.println("!Error during authentication.");
 			return;
 		}
 
 		// encode full message to Base64 and send it
 		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
-		out.println(base64EncryptedMessage);
+		out.println(new String(base64EncryptedMessage, StandardCharsets.UTF_8));
+
+		logger.info("Sent challenge for handshake to " + username);
+		status = WAITING_FOR_CLIENTS_PROOF;
+		return;
+	}
+
+	private void proofClient(String command, PrintWriter out) {
+
+		String decodedMessage = decodeMessage(command);
+
+		if(!serverChallenge.equals(decodedMessage)) {
+			logger.error("Client couldn't decode server's challenge");
+			out.println(encodeMessage("!Error during authentication."));
+			status = WAITING_FOR_AUTHENTICATION;
+			return;
+		}
+
+		User user = chatServer.getUsers().get(username);
+		synchronized (user) {
+			if (user.isOnline()) {
+				out.println("!Error: This user is in use somewhere else.");
+				return;
+			}
+			currentUser = user;
+			currentUser.setOnline(true);
+			currentUser.setSocket(client);
+			currentUser.setSecretKey(secretKey);
+			currentUser.setIvVector(ivVector);
+
+			status = AUTHENTICATED;
+		}
+
+		logger.info(username + " successfully authenticated");
+		out.println(encodeMessage("Successfully logged in."));
 		return;
 	}
 }
