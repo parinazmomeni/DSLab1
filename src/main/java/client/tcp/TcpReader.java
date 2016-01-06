@@ -1,10 +1,8 @@
 package client.tcp;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.net.Socket;
 
-import cli.Shell;
 import client.Client;
 import util.SecurityTool;
 import util.Logger;
@@ -18,7 +16,6 @@ public class TcpReader implements Runnable {
 	private Socket socket;
 	private Client client;
 	private String response = "";
-	private Shell shell;
 	private SecurityTool security;
 
 	private int status = WAITING_FOR_AUTHENTICATION;
@@ -26,10 +23,9 @@ public class TcpReader implements Runnable {
 	private Logger logger = new Logger();
 	private Object lock = new Object();
 
-	public TcpReader(Client client, Socket socket, Shell shell) {
+	public TcpReader(Client client, Socket socket) {
 		this.client = client;
 		this.socket = socket;
-		this.shell = shell;
 	}
 
 	@Override
@@ -45,7 +41,7 @@ public class TcpReader implements Runnable {
 						// !public msg will be transfered to the shell immediately
 						if (decodedTmp.startsWith("!public")) {
 							client.setLastMsg(decodedTmp.substring(8).trim());
-							shell.writeLine(decodedTmp.substring(8).trim());
+							client.getShell().writeLine(decodedTmp.substring(8).trim());
 						} else {
 							if (response.startsWith("Successfully logged out")) setStatus(WAITING_FOR_AUTHENTICATION);
 							response = decodedTmp.trim();
@@ -54,7 +50,7 @@ public class TcpReader implements Runnable {
 				}
 				tmp = reader.readLine();
 			}
-		} catch (IOException e) {
+		} catch (Exception e) {
 			logger.error(e.getMessage());
 		}
 	}

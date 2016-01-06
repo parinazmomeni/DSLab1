@@ -77,21 +77,22 @@ public class TcpWorker implements Runnable {
 
 				command = bufferedReader.readLine();
 			}
-		} catch (IOException e) {
-			logger.error(e.getMessage());
+		} catch (Exception e) {
+			logger.exception(e);
 
 		} finally {
 			try {
 				client.close();
-				if (currentUser != null) {
-					synchronized (currentUser) {
-						currentUser.setOnline(false);
-						currentUser.setSocket(null);
-					}
-					currentUser = null;
-				}
 			} catch (IOException e) {
 				logger.error(e.getMessage());
+			}
+			
+			if (currentUser != null) {
+				synchronized (currentUser) {
+					currentUser.setOnline(false);
+					currentUser.setSocket(null);
+				}
+				currentUser = null;
 			}
 		}
 
@@ -293,18 +294,26 @@ public class TcpWorker implements Runnable {
 		}
 
 		// decrypt every argument from Base64 format
-		String str = security.decode(command, "RSA");
+		String str;
+		try {
+			str = security.decode(command, "RSA");
+		} catch (Exception e) {
+			logger.exception(e);
+			out.println("!Error during authentication.");
+			return;
+		}
+		
 		assert str.matches("!authenticate [\\w\\.]+["+B64+"]{43}="):"1st  message";
-
 		String[] message = str.split(" ");
 		clientChallenge = message[2];
 
 		// error handling
 		if (!chatServer.getUsers().containsKey(message[1])) {
-			logger.error("Wrong username");
+			logger.error("Wrong username: "+message[1]+"; Message: "+str);
 			out.println("!Error: Wrong username.");
 			return;
 		}
+		
 		if ((chatServer.getUsers().get(message[1])).isOnline()) {
 			logger.error("Username already in use.");
 			out.println("!Error: This user is in use somewhere else.");
@@ -312,7 +321,7 @@ public class TcpWorker implements Runnable {
 		}
 
 		username = message[1];
-		keyPaths.setPublicKeyPath(config.getString("keys.dir") + "\\" + username + ".pub.pem");
+		keyPaths.setPublicKeyPath(config.getString("keys.dir") + File.separator + username + ".pub.pem");
 
 		// generate a secure random number
 		SecureRandom secureRandom = new SecureRandom();
@@ -365,7 +374,14 @@ public class TcpWorker implements Runnable {
 		}
 
 		// read response and compare to original server challenge
-		String response = security.decode(command,"AES");
+		String response;
+		try {
+			response = security.decode(command,"AES");
+		} catch (Exception e) {
+			logger.exception(e);
+			return;
+		}
+		
 		if (!serverChallenge.equals(response)) {
 			logger.error("Authentication error. Client couldn't decode server's challenge.");
 			security.println("!Error during authentication.");

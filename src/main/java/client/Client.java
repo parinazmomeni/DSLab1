@@ -34,7 +34,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class Client implements IClientCli, Runnable {
 
-	private final int maxLoops = 20;
 	private final int WAITING_FOR_AUTHENTICATION = 0;
 	private final int AUTHENTICATED = 2;
 	private final String B64 = "a-zA-Z0-9/+";
@@ -46,18 +45,16 @@ public class Client implements IClientCli, Runnable {
 	private DatagramSocket udpSocket;
 	private ServerSocket srvSocket;
 
+	private Logger logger = new Logger();
+	private Config config;
 	private Shell shell;
 
 	private boolean active = false;
 
 	private String lastMsg = "";
 
-	private Config config;
-
 	private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
 	private ExecutorService threadPool = Executors.newCachedThreadPool();
-
-	private Logger logger = new Logger();
 
 	private Thread tcpReaderThread;
 	private Thread udpReaderThread;
@@ -65,7 +62,7 @@ public class Client implements IClientCli, Runnable {
 	private TcpReader tcpReader;
 	private UdpReader udpReader;
 
-	private HashMAC hashMAC;
+	private HashMAC hashMAC; //hashing helper
 
 	private SecurityTool security;
 
@@ -98,7 +95,7 @@ public class Client implements IClientCli, Runnable {
 
 			active = true;
 
-			tcpReader = new TcpReader(this, tcpSocket, shell);
+			tcpReader = new TcpReader(this, tcpSocket);
 			udpReader = new UdpReader(this, udpSocket);
 
 			tcpReaderThread = new Thread(tcpReader);
@@ -123,7 +120,11 @@ public class Client implements IClientCli, Runnable {
 	public ExecutorService getThreadPool(){
 		return threadPool;
 	}
-
+	
+	public Shell getShell() {
+		return shell;
+	}
+	
 	@Override
 	public String login(String username, String password) throws IOException {
 		security.println("!login" + " " + username + " " + password);
@@ -133,7 +134,6 @@ public class Client implements IClientCli, Runnable {
 	@Override
 	@Command
 	public String logout() throws IOException {
-
 		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
 
 		try {
@@ -197,11 +197,13 @@ public class Client implements IClientCli, Runnable {
 		}
 
 		TcpWorker worker = new TcpWorker(this, new Socket(host, port));
-		String response = worker.send("!msg " + message);
+		String response = worker.sendAndRecieve("!msg", message);
+		worker.shutDown();
 		if (response == null) {
-			return "Error occured during client to client communication";
+			logger.error("Error occured during client to client communication!");
+			return null;
 		} else {
-			return response;
+			return receiver + " replied with " +response;
 		}
 	}
 
@@ -210,22 +212,20 @@ public class Client implements IClientCli, Runnable {
 	public String lookup(String username) throws IOException{
 		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
 
+		tcpReader.clearResponse();
 		try{
-			tcpReader.clearResponse();
 			security.println("!lookup" + " " + username);
 		} catch (Exception e) {
-			logger.error(e.getMessage());
+			logger.exception(e);
 			return "Error during encoding message.";
 		}
 
 		String address = "";
 
 		try {
-			int count = 0;
-			while (true) {
-				count++;
+			for (int count=0; count<10; count++){ //this is workaround 
 				address = tcpReader.getResponse();
-				if (count == maxLoops || address.startsWith("!address")) {
+				if (address.startsWith("!address")) {
 					tcpReader.clearResponse();
 					return address;
 				} else {
@@ -233,11 +233,11 @@ public class Client implements IClientCli, Runnable {
 				}
 			}
 		} catch (InterruptedException e) {
-			e.printStackTrace();
+			logger.exception(e);
 			tcpReader.clearResponse();
-			return address;
 		}
-
+		
+		return address;
 	}
 
 	@Override
@@ -261,12 +261,14 @@ public class Client implements IClientCli, Runnable {
 			logger.error("Port: " + addressPort[1] + " is not a number.");
 			return "Port: " + addressPort[1] + " is not a number.";
 		}
+		
 		try{
 			security.println("!register" + " " + address);
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during encoding message.";
 		}
+		
 		return getResponse();
 	}
 
@@ -368,7 +370,12 @@ public class Client implements IClientCli, Runnable {
 			return response;
 		}
 
-		response = security.decode(response,"RSA");
+		try {
+			response = security.decode(response,"RSA");
+		} catch (Exception e) {
+			logger.exception(e);
+			return null;
+		}
 		assert response.matches("!ok ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{22}=="):"2nd  message";
 
 		String[] message = response.split(" ");
@@ -383,7 +390,12 @@ public class Client implements IClientCli, Runnable {
 		security.println(message[2]);
 
 		// get server's response with log in status
-		response = security.decode(getResponse(), "AES");
+		try {
+			response = security.decode(getResponse(), "AES");
+		} catch (Exception e) {
+			logger.exception(e);
+			return null;
+		}
 
 		if(response.startsWith("!Error")) {
 			return response;

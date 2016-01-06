@@ -71,7 +71,8 @@ public class User {
     }
 
     public String toString() {
-        return String.format("%1$-7s %2$-10s %3$s%4$d\n", userName, onlineStatus());
+        //return String.format("%1$-7s %2$-10s %3$s%4$d\n", userName, onlineStatus()); -> throws an error!!!
+    	return userName +" "+ onlineStatus();
     }
 
     public void setSocket(Socket client) {

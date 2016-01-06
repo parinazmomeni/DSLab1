@@ -4,13 +4,17 @@ import model.KeyInformations;
 import model.User;
 import org.bouncycastle.util.encoders.Base64;
 
+import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.File;
 import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * Created by aigi on 04.01.2016.
@@ -27,7 +31,7 @@ public class SecurityTool {
         this.out = out;
     }
 
-    public String decode(String msg, String algorithm) {
+    public String decode(String msg, String algorithm) throws Exception {
         switch (algorithm) {
             case "RSA":
                 return decodeRSA(msg);
@@ -38,7 +42,7 @@ public class SecurityTool {
         }
     }
 
-    public String encode(String msg, String algorithm) {
+    public String encode(String msg, String algorithm) throws Exception {
         switch (algorithm) {
             case "RSA":
                 return encodeRSA(msg);
@@ -54,23 +58,20 @@ public class SecurityTool {
      * via RSA algorithm and the use of the private key, saved in the keyPaths
      * @param msg the message to decode
      * @return a decoded UTF-8 String
+     * @throws NoSuchPaddingException 
+     * @throws NoSuchAlgorithmException 
      */
-    private String decodeRSA(String msg) {
+    private String decodeRSA(String msg) throws Exception {
 
         // decode challenge from Base64 format
         byte[] message = Base64.decode(msg);
 
         // decrypt message with private key
         byte[] decodedMessage = null;
-        try {
-            Cipher cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
-            cipher.init(Cipher.DECRYPT_MODE, Keys.readPrivatePEM(new File(keyPaths.getPrivateKeyPath())));
-            decodedMessage = cipher.doFinal(message);
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-            return "!Error: No valid private key for this user exists. Authentication failed.";
-        }
-
+        Cipher cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, Keys.readPrivatePEM(new File(keyPaths.getPrivateKeyPath())));
+        decodedMessage = cipher.doFinal(message);
+        //return "!Error: No valid private key for this user exists. Authentication failed.";
         return new String(decodedMessage, StandardCharsets.UTF_8);
     }
 
@@ -79,22 +80,22 @@ public class SecurityTool {
      * via AES algorithm and the use of the shared key, saved in the keyPaths
      * @param msg the message to decode
      * @return a decoded UTF-8 String
+     * @throws NoSuchPaddingException 
+     * @throws NoSuchAlgorithmException 
+     * @throws BadPaddingException 
+     * @throws IllegalBlockSizeException 
      */
-    private String decodeAES(String msg) {
+    private String decodeAES(String msg) throws Exception{
 
         // decode challenge from Base64 format
         byte[] message = Base64.decode(msg);
 
         // decrypt message with shared secret key
         byte[] decodedMessage = null;
-        try {
-            Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, keyPaths.getSecretKey(),new IvParameterSpec(keyPaths.getIvVector()));
-            decodedMessage = cipher.doFinal(message);
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-            return "!Error during decoding message";
-        }
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, keyPaths.getSecretKey(),new IvParameterSpec(keyPaths.getIvVector()));
+        decodedMessage = cipher.doFinal(message);
+        //return "!Error during decoding message";
 
         return new String(decodedMessage, StandardCharsets.UTF_8);
     }
@@ -118,18 +119,14 @@ public class SecurityTool {
      * @param msg the message to encode
      * @return an encoded UTF-8 String
      */
-    private String encodeAES(String msg) {
+    private String encodeAES(String msg) throws Exception {
 
         // initialize AES cipher with shared secret key and encode full message
         byte[] encryptedMessage = null;
-        try {
-            Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, keyPaths.getSecretKey(), new IvParameterSpec(keyPaths.getIvVector()));
-            encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
-        }catch (Exception e) {
-            logger.error(e.getMessage());
-            return "!Error during encoding message";
-        }
+        Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, keyPaths.getSecretKey(), new IvParameterSpec(keyPaths.getIvVector()));
+        encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
+        //return "!Error during encoding message";
 
         // encode in Base64 format
         byte[] base64encryptedMessage = Base64.encode(encryptedMessage);
@@ -144,18 +141,14 @@ public class SecurityTool {
      * @param msg the message to encode
      * @return an encoded UTF-8 String
      */
-    private String encodeRSA(String msg) {
+    private String encodeRSA(String msg) throws Exception {
 
         // initialize RSA cipher with public key and encode full message
         byte[] encryptedMessage = null;
-        try {
-            Cipher cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(keyPaths.getPublicKeyPath())));
-            encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-            return "Error during authentication";
-        }
+        Cipher cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(keyPaths.getPublicKeyPath())));
+        encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
+        //return "Error during authentication";
 
         // encode in Base64 format
         byte[] base64encryptedMessage = Base64.encode(encryptedMessage);
@@ -166,17 +159,27 @@ public class SecurityTool {
     /**
      * Writes an AES-encoded message to a Stream
      * @param msg the message to encode and send
+     * @throws Exception 
      */
     public void println(String msg) {
-        out.println(encode(msg, "AES"));
+        try {
+			out.println(encode(msg, "AES"));
+		} catch (Exception e) {
+			logger.exception(e);
+		}
     }
 
     /**
      * Writes an RSA-encoded message to a Stream
      * @param msg the message to encode and send
+     * @throws Exception 
      */
     public void printlnRSA(String msg) {
-        out.println(encode(msg, "RSA"));
+    	try {
+    		out.println(encode(msg, "RSA"));
+	    } catch (Exception e) {
+			logger.exception(e);
+		}
     }
 
     /**

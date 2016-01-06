@@ -14,14 +14,29 @@ public class Logger {
 //	};  ----> Sorry aber das macht wenig Sinn für jeden Thread ein eigenes statisches dateformat zu haben
 //				da kannst du gleich für jedes Logger Objekt ein eigenes DateFormat instanzieren und dir den Overhead sparen
 	
+	private static final boolean isDebug = false;
 	private final DateFormat DATE_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS");
+	private final String MSG_FORMAT = "%s\t\t%s: %s";
+	
+	private String format(String level, String msg) {
+		return String.format(MSG_FORMAT, DATE_FORMAT.format(new Date()), level, msg);
+	}
 
 	public void error(String msg) {
-		System.out.println(String.format("%s\t\t%s%s", DATE_FORMAT.format(new Date()), "Error: ", msg));
+		System.err.println(format("Error", msg));
 	}
 
 	public void info(String msg) {
-		System.out.println(String.format("%s\t\t%s%s", DATE_FORMAT.format(new Date()), "INFO: ", msg));
+		System.out.println(format("Info", msg));
+	}
+	
+	public void debug(String msg) {
+		if (isDebug) System.out.println(format("Debug", msg));
+	}
+	
+	public void exception(Exception e) {
+		System.err.println(format("Exception", e.getClass().getSimpleName()+" - "+e.getMessage()));
+		e.printStackTrace();
 	}
 
 }

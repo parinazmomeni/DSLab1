@@ -21,10 +21,23 @@ public class HashMAC {
 	private static final Charset charset = Charset.forName("UTF-8");
 	private Mac messageAuthentificationCode;
 	
+	/**
+	 * Reads the secret key file and initializes the hashing algorithm.
+	 * @param pathToKeyFile
+	 * @throws InvalidKeyException
+	 * @throws NoSuchAlgorithmException
+	 * @throws IOException
+	 */
 	public HashMAC(String pathToKeyFile) throws InvalidKeyException, NoSuchAlgorithmException, IOException {
 		this(Files.readAllBytes(new File(pathToKeyFile).toPath()));
 	}
 	
+	/**
+	 * Reads the secret key file and initializes the hashing algorithm.
+	 * @param secret
+	 * @throws InvalidKeyException
+	 * @throws NoSuchAlgorithmException
+	 */
 	public HashMAC(byte[] secret) throws InvalidKeyException, NoSuchAlgorithmException {
 		messageAuthentificationCode = Mac.getInstance(algorithm);
 		messageAuthentificationCode.init(new SecretKeySpec(secret, algorithm));
@@ -32,7 +45,7 @@ public class HashMAC {
 	
 	/**
 	 * Creates and encodes the hash.
-	 * @param msg
+	 * @param msg the message to create the hash from
 	 * @return hash in base64
 	 */
 	public String getEncodedHash(String msg) {
