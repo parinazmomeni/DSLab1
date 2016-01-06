@@ -346,7 +346,7 @@ public class Client implements IClientCli, Runnable {
 
 		// generate and save security tool with key paths
 		KeyInformations keyPaths = new KeyInformations(
-				config.getString("keys.dir")+File.pathSeparator+username+".pem",
+				config.getString("keys.dir")+File.separator+username+".pem",
 				config.getString("chatserver.key")
 		);
 		security = new SecurityTool(tcpOutputStream, keyPaths);
