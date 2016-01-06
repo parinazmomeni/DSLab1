@@ -3,6 +3,7 @@ package client;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -18,7 +19,7 @@ import javax.xml.bind.DatatypeConverter;
  */
 public class HashMAC {
 	private static final String algorithm = "HmacSHA256";
-	private static final Charset charset = Charset.forName("UTF-8");
+	private static final Charset charset = StandardCharsets.UTF_8;
 	private Mac messageAuthentificationCode;
 	
 	/**

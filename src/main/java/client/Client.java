@@ -346,7 +346,7 @@ public class Client implements IClientCli, Runnable {
 
 		// generate and save security tool with key paths
 		KeyInformations keyPaths = new KeyInformations(
-				config.getString("keys.dir")+"\\"+username+".pem",
+				config.getString("keys.dir")+File.pathSeparator+username+".pem",
 				config.getString("chatserver.key")
 		);
 		security = new SecurityTool(tcpOutputStream, keyPaths);
@@ -385,8 +385,8 @@ public class Client implements IClientCli, Runnable {
 		}
 
 		// save shared key and vector for further use and respond with encoded server challenge
-		security.setSecretKey(new SecretKeySpec(Base64.decode(message[3].getBytes(Charset.forName("UTF-8"))), "AES"));
-		security.setIvVector(Base64.decode(message[4].getBytes(Charset.forName("UTF-8"))));
+		security.setSecretKey(new SecretKeySpec(Base64.decode(message[3].getBytes(StandardCharsets.UTF_8)), "AES"));
+		security.setIvVector(Base64.decode(message[4].getBytes(StandardCharsets.UTF_8)));
 		security.println(message[2]);
 
 		// get server's response with log in status
