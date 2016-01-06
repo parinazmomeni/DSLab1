@@ -18,27 +18,26 @@ import java.util.concurrent.Executors;
 
 import cli.Command;
 import cli.Shell;
+import util.SecurityTool;
 import client.tcp.TcpListener;
 import client.tcp.TcpReader;
 import client.tcp.TcpWorker;
 import client.udp.UdpReader;
+import model.KeyInformations;
 import org.bouncycastle.util.encoders.Base64;
 import util.ComponentFactory;
 import util.Config;
-import util.Keys;
 import util.Logger;
 import util.Streams;
 
-import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 public class Client implements IClientCli, Runnable {
 
 	private final int maxLoops = 20;
 	private final int WAITING_FOR_AUTHENTICATION = 0;
-	private final int WAITING_FOR_FINAL_RESPONSE = 1;
 	private final int AUTHENTICATED = 2;
+	private final String B64 = "a-zA-Z0-9/+";
 
 	private int status = WAITING_FOR_AUTHENTICATION;
 	private PrintWriter tcpOutputStream;
@@ -67,10 +66,8 @@ public class Client implements IClientCli, Runnable {
 	private UdpReader udpReader;
 
 	private HashMAC hashMAC;
-	private String user;
 
-	private byte[] ivVector;
-	private SecretKey secretKey;
+	private SecurityTool security;
 
 	public Client(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
 		this.config = config;
@@ -101,7 +98,7 @@ public class Client implements IClientCli, Runnable {
 
 			active = true;
 
-			tcpReader = new TcpReader(this, tcpSocket, config, shell);
+			tcpReader = new TcpReader(this, tcpSocket, shell);
 			udpReader = new UdpReader(this, udpSocket);
 
 			tcpReaderThread = new Thread(tcpReader);
@@ -129,7 +126,7 @@ public class Client implements IClientCli, Runnable {
 
 	@Override
 	public String login(String username, String password) throws IOException {
-		tcpOutputStream.println("!login" + " " + username + " " + password);
+		security.println("!login" + " " + username + " " + password);
 		return "";
 	}
 
@@ -140,7 +137,7 @@ public class Client implements IClientCli, Runnable {
 		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
 
 		try {
-			tcpOutputStream.println(encodeMessage("!logout"));
+			security.println("!logout");
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during encoding message.";
@@ -158,7 +155,7 @@ public class Client implements IClientCli, Runnable {
 		if(status!=AUTHENTICATED) return "You have to authenticate yourself first.";
 
 		try {
-			tcpOutputStream.println(encodeMessage("!send" + " " + message));
+			security.println("!send" + " " + message);
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during encoding message.";
@@ -215,7 +212,7 @@ public class Client implements IClientCli, Runnable {
 
 		try{
 			tcpReader.clearResponse();
-			tcpOutputStream.println(encodeMessage("!lookup" + " " + username));
+			security.println("!lookup" + " " + username);
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during encoding message.";
@@ -265,7 +262,7 @@ public class Client implements IClientCli, Runnable {
 			return "Port: " + addressPort[1] + " is not a number.";
 		}
 		try{
-			tcpOutputStream.println(encodeMessage("!register" + " " + address));
+			security.println("!register" + " " + address);
 		} catch (Exception e) {
 			logger.error(e.getMessage());
 			return "Error during encoding message.";
@@ -345,62 +342,50 @@ public class Client implements IClientCli, Runnable {
 
 		if(status==AUTHENTICATED) return "You are already logged in";
 
-		this.user = username;
+		// generate and save security tool with key paths
+		KeyInformations keyPaths = new KeyInformations(
+				config.getString("keys.dir")+"\\"+username+".pem",
+				config.getString("chatserver.key")
+		);
+		security = new SecurityTool(tcpOutputStream, keyPaths);
+		tcpReader.setSecurity(security);
 
-		// generates a 32 byte secure random number
+		// generates a 32 byte secure random number for challenge
 		SecureRandom secureRandom = new SecureRandom();
 		final byte[] challenge = new byte[32];
 		secureRandom.nextBytes(challenge);
 
 		// encode challenge into Base64 format
 		byte[] base64Challenge = Base64.encode(challenge);
-		tcpReader.setChallenge(base64Challenge);
 
-		// generate full message
-		String fullMessage = "!authenticate " + username + " " + new String(base64Challenge,StandardCharsets.UTF_8);
+		// generate full message and send it
+		security.printlnRSA("!authenticate " + username + " " + new String(base64Challenge, StandardCharsets.UTF_8));
 
-		// initialize RSA cipher with chatserver's public key
-		// and encode full message
-		Cipher cipher = null;
-		byte[] encryptedMessage = null;
-		String chatServeKeyFilepath = config.getString("chatserver.key");
-		try {
-			cipher = Cipher.getInstance("RSA/NONE/OAEPWithSHA256AndMGF1Padding");
-			cipher.init(Cipher.ENCRYPT_MODE, Keys.readPublicPEM(new File(chatServeKeyFilepath)));
-			encryptedMessage = cipher.doFinal(fullMessage.getBytes(Charset.forName("UTF-8")));
-		} catch (Exception e) {
-			authenticationError(e);
-			return "Error during authentication";
-		}
-
-		byte[] base64EncryptedMessage = Base64.encode(encryptedMessage);
-		tcpOutputStream.println(new String(base64EncryptedMessage, StandardCharsets.UTF_8));
-
-		// get server's response with server challenge and AES information
-		tcpReader.clearResponse();
+		// get server's response with server challenge and AES information and compare to original client challenge
 		String response = getResponse();
 
-		if(!response.startsWith("!")) {
+		if(response.startsWith("!Error")) {
 			return response;
 		}
 
-		String thirdMessage = response.substring(1);
-		try {
-			thirdMessage = (encodeMessage(thirdMessage));
-		} catch (Exception e) {
-			authenticationError(e);
-			return "Error during authentication.";
+		response = security.decode(response,"RSA");
+		assert response.matches("!ok ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{43}= ["+B64+"]{22}=="):"2nd  message";
+
+		String[] message = response.split(" ");
+		if(!message[1].equals(new String(base64Challenge, StandardCharsets.UTF_8)) || !message[0].equals("!ok")) {
+			tcpOutputStream.println("!Error: Wrong challenge response. Authentication failed.");
+			return "Can't assure safe connection to server. Authentication failed.";
 		}
 
-		tcpOutputStream.println(thirdMessage);
-
-		tcpReader.setStatus(WAITING_FOR_FINAL_RESPONSE);
+		// save shared key and vector for further use and respond with encoded server challenge
+		security.setSecretKey(new SecretKeySpec(Base64.decode(message[3].getBytes(Charset.forName("UTF-8"))), "AES"));
+		security.setIvVector(Base64.decode(message[4].getBytes(Charset.forName("UTF-8"))));
+		security.println(message[2]);
 
 		// get server's response with log in status
-		response = getResponse();
+		response = security.decode(getResponse(), "AES");
 
 		if(response.startsWith("!Error")) {
-			tcpReader.setStatus(WAITING_FOR_AUTHENTICATION);
 			return response;
 		}
 
@@ -409,26 +394,10 @@ public class Client implements IClientCli, Runnable {
 		return response;
 	}
 
-	private String encodeMessage(String msg) throws Exception{
-
-		Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
-		cipher.init(Cipher.ENCRYPT_MODE, secretKey,new IvParameterSpec(ivVector));
-		byte[] encryptedMessage = cipher.doFinal(msg.getBytes(Charset.forName("UTF-8")));
-		byte[] base64encryptedMessage = Base64.encode(encryptedMessage);
-
-		return new String(base64encryptedMessage,StandardCharsets.UTF_8);
-	}
-
-	public String getUserName() { return user; }
-	public void setSecretKey(SecretKey secretKey) { this.secretKey = secretKey; }
-	public void setIvVector(byte[] ivVector) { this.ivVector = ivVector;
-	}
-
-	private void authenticationError(Exception e) {
-		logger.error(e.getMessage());
-		tcpReader.setStatus(WAITING_FOR_AUTHENTICATION);
-	}
-
+	/**
+	 * this method checks for a response from the tcpReader
+	 * @return the response as String
+	 */
 	private String getResponse() {
 		String response = "";
 		try {

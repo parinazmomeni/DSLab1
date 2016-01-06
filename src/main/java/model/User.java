@@ -1,14 +1,14 @@
 package model;
 
-import javax.crypto.SecretKey;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.security.Key;
 
 public class User {
 
     private String userName;
     private String password;
-    private SecretKey secretKey;
+    private Key secretKey;
     private byte[] ivVector;
     private boolean online;
 
@@ -82,11 +82,11 @@ public class User {
         return this.client;
     }
 
-    public SecretKey getSecretKey() {
+    public Key getSecretKey() {
         return secretKey;
     }
 
-    public void setSecretKey(SecretKey secretKey) {
+    public void setSecretKey(Key secretKey) {
         this.secretKey = secretKey;
     }
 
