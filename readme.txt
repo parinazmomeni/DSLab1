@@ -7,6 +7,15 @@ Code is stable and the specified points in the assignment are completed. I've te
 LAB 2:
 
 Stage 1 - Naming service and RMI
+For registering and looking up addresses of users, the chatserver has to lookup the root nameserver in the registry and forward the 
+requests to the remote object of the nameserver. Thus, the in-memory solution of the last lab is obsolete.
+
+Updates in the chatserver were necessary to accommodate the lookup mechanism changes.
+The chatserver has to read additional configuration parameters of the RMI registry and the binding name of the root nameserver.
+
+The Nameserver implements both Remote interfaces: INameserver and INameserverForChatserver.
+To differnciate between root namerserver and other nameserver a boolean flag(isRoot) was introduced.
+
 
 Stage 2 - Secure channel
 For a connection with the server, the user first has to authenticate himself. The TcpWorker of the server checks the message and response accordingly, waiting for the last message. The client checks for a valid response, saves the key-information in his security (SecurityTool.java) and sends the server the server challenge, now encoded via AES. Lastly, the server check for the valid response, saves the given key-information for the shared key on the user (User.java) and his security (SecurityTool.java) and sends the client a success-message. From this time on, all message between client and server are over the established secure channel.
