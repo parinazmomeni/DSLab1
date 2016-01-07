@@ -245,20 +245,19 @@ public class TcpWorker implements Runnable {
 
         String address = null;
         try {
-            address = server.lookup(otherUser);
+            address = server.lookup(tokens[0]);
 
             if (address == null) {
                 security.println(otherUser + ": Wrong username or user not reachable.");
                 return;
             }
 
-            security.println(address);
         } catch (RemoteException ex) {
             security.println("Could not lookup address of user due to communication error with nameserver");
             return;
         }
 
-        security.println(otherUser + " Wrong username or user not reachable.");
+        security.println(address);
 
     }
 

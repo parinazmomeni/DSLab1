@@ -173,7 +173,7 @@ public class Nameserver implements INameserverCli, INameserver, Runnable {
                 buffer.append("No addresses");
             } else {
                 for (String key : addresses.keySet()) {
-                    buffer.append(key).append("\n").append(addresses.get(key)).append("\n");
+                    buffer.append(key).append(" ").append(addresses.get(key)).append("\n");
                 }
             }
         }
@@ -219,6 +219,7 @@ public class Nameserver implements INameserverCli, INameserver, Runnable {
                     throw new AlreadyRegisteredException("The username: " + username + " has been already registered in this zone: " + domain);
                 } else {
                     addresses.put(username.toLowerCase(), address);
+                    logger.info("Registering user: " + username.toLowerCase() + " in zone: " + domain);
                 }
             }
         }
@@ -246,11 +247,16 @@ public class Nameserver implements INameserverCli, INameserver, Runnable {
             return null;
         }
 
+        logger.info("Chatserver requested nameserver for domain: " + domain);
         return servers.get(zone.toLowerCase());
     }
 
     @Override
     public String lookup(String username) throws RemoteException {
+
+        logger.info(username + " requested by Chatserver");
+
+        System.out.println(addresses.keySet().toString());
 
         if (username == null || username.isEmpty()) {
             return null;
@@ -272,6 +278,7 @@ public class Nameserver implements INameserverCli, INameserver, Runnable {
                     throw new AlreadyRegisteredException("The domain: " + domain + " has been already registered by a nameserver");
                 } else {
                     servers.put(domain.toLowerCase(), nameserver);
+                    logger.info("Registering nameserver for zone: " + domain.toLowerCase());
                 }
             }
         }
