@@ -12,8 +12,6 @@ public class User {
     private byte[] ivVector;
     private boolean online;
 
-    private InetAddress address;
-    private int port;
     private Socket client;
 
     public User(String userName, String password) {
@@ -54,25 +52,9 @@ public class User {
         }
     }
 
-    public InetAddress getAddress() {
-        return address;
-    }
-
-    public void setAddress(InetAddress address) {
-        this.address = address;
-    }
-
-    public int getPort() {
-        return port;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
-    }
-
     public String toString() {
         //return String.format("%1$-7s %2$-10s %3$s%4$d\n", userName, onlineStatus()); -> throws an error!!!
-    	return userName +" "+ onlineStatus();
+        return userName + " " + onlineStatus();
     }
 
     public void setSocket(Socket client) {

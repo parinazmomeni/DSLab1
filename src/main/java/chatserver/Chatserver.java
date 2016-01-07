@@ -6,6 +6,8 @@ import java.io.PrintStream;
 import java.net.BindException;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,188 +24,211 @@ import chatserver.udp.UdpListener;
 import cli.Command;
 import cli.Shell;
 import model.User;
+import nameserver.INameserver;
+import nameserver.INameserverForChatserver;
 import util.ComponentFactory;
 import util.Config;
 import util.Logger;
 
 public class Chatserver implements IChatserverCli, Runnable {
 
-	private Logger logger = new Logger();
-	private Shell shell;
-	private Config config;
+    private Logger logger = new Logger();
+    private Shell shell;
+    private Config config;
 
-	private boolean online = true;
-	private boolean active = true;
+    private boolean online = true;
+    private boolean active = true;
 
-	private ExecutorService threadPool;
+    private ExecutorService threadPool;
 
-	private Map<String, User> users = Collections.synchronizedMap(new TreeMap<String, User>());
-	private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
+    private Map<String, User> users = Collections.synchronizedMap(new TreeMap<String, User>());
+    private List<TcpWorker> tcpWorkerList = Collections.synchronizedList(new ArrayList<TcpWorker>());
 
-	private int tcpPort;
-	private int udpPort;
+    private int tcpPort;
+    private int udpPort;
 
-	private ServerSocket tcpSocket;
-	private DatagramSocket udpSocket;
+    private String registryHost;
+    private int registryPort;
+    private String rootID;
 
-	private TcpListener tcpListener;
-	private UdpListener udpListener;
+    private ServerSocket tcpSocket;
+    private DatagramSocket udpSocket;
 
-	public Chatserver(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
-		this.config = config;
+    private TcpListener tcpListener;
+    private UdpListener udpListener;
 
-		shell = new Shell(componentName, userRequestStream, userResponseStream);
-		shell.register(this);
+    private INameserverForChatserver rootServer;
 
-		threadPool = Executors.newCachedThreadPool();
+    public Chatserver(String componentName, Config config, InputStream userRequestStream, PrintStream userResponseStream) {
+        this.config = config;
 
-		try {
-			tcpPort = config.getInt("tcp.port");
-			udpPort = config.getInt("udp.port");
-		} catch (Exception e) {
-			logger.error(e.getMessage());
-			active = false;
-		}
-	}
+        shell = new Shell(componentName, userRequestStream, userResponseStream);
+        shell.register(this);
 
-	private void readUserProperties() throws MissingResourceException {
-		Config userConfig = new Config("user");
-		Set<String> keys = userConfig.listKeys();
+        threadPool = Executors.newCachedThreadPool();
 
-		for (String key : keys) {
-			int index = key.lastIndexOf(".password");
-			String username = key.substring(0, index);
-			users.put(username, new User(username, userConfig.getString(key)));
-		}
-	}
+        try {
+            tcpPort = config.getInt("tcp.port");
+            udpPort = config.getInt("udp.port");
 
-	private void aquirePorts() throws IOException {
-		// Create TCP Socket
-		tcpSocket = new ServerSocket(tcpPort);
+            registryHost = config.getString("registry.host");
+            registryPort = config.getInt("registry.port");
+            rootID = config.getString("root_id");
 
-		// Create UDP Socket
-		udpSocket = new DatagramSocket(udpPort);
-	}
+            // Get reference to registry
+            Registry registry = LocateRegistry.getRegistry(registryHost, registryPort);
 
-	private void createListeners() {
-		// Create TCP Listener
-		tcpListener = new TcpListener(this, tcpSocket, config);
+            // Lookup root namerserver
+            rootServer = (INameserverForChatserver) registry.lookup(rootID);
 
-		// Create UDP Listener
-		udpListener = new UdpListener(this, udpSocket);
-	}
+        } catch (Exception e) {
+            logger.error(e.getMessage());
+            active = false;
+        }
+    }
 
-	@Override
-	public void run() {
+    private void readUserProperties() throws MissingResourceException {
+        Config userConfig = new Config("user");
+        Set<String> keys = userConfig.listKeys();
 
-		// If Server is not active, something went wrong and we don't
-		// start up the Server and the other Threads.
-		if (active) {
-			try {
-				// Users credentials
-				readUserProperties();
+        for (String key : keys) {
+            int index = key.lastIndexOf(".password");
+            String username = key.substring(0, index);
+            users.put(username, new User(username, userConfig.getString(key)));
+        }
+    }
 
-				// TCP, UDP ports
-				aquirePorts();
+    private void aquirePorts() throws IOException {
+        // Create TCP Socket
+        tcpSocket = new ServerSocket(tcpPort);
 
-				// TCP, UDP Listeners
-				createListeners();
+        // Create UDP Socket
+        udpSocket = new DatagramSocket(udpPort);
+    }
 
-				// Start threads
-				threadPool.execute(tcpListener);
-				threadPool.execute(udpListener);
-				threadPool.execute(shell);
+    private void createListeners() {
+        // Create TCP Listener
+        tcpListener = new TcpListener(this, tcpSocket, config);
 
-				logger.info("ChatServer started ...");
+        // Create UDP Listener
+        udpListener = new UdpListener(this, udpSocket);
+    }
 
-				threadPool.shutdown();
+    @Override
+    public void run() {
 
-			} catch (MissingResourceException e) {
-				logger.error("user.properties file not found.");
-			} catch (BindException e) {
-				logger.error("UDP port: " + udpPort + " or TCP port: " + tcpPort + " are already in use.");
-			} catch (IOException e) {
-				logger.error(e.getMessage());
-			}
-		}
-	}
+        // If Server is not active, something went wrong and we don't
+        // start up the Server and the other Threads.
+        if (active) {
+            try {
+                // Users credentials
+                readUserProperties();
 
-	@Override
-	@Command
-	public String users() throws IOException {
+                // TCP, UDP ports
+                aquirePorts();
 
-		String list = "";
-		synchronized (users) {
-			if (users.isEmpty()) {
-				list = "User list is empty!";
-			}
+                // TCP, UDP Listeners
+                createListeners();
 
-			int num = 1;
-			for (User u : users.values()) {
-				list += num + "." + " " + u.getUserName() + " ";
-				num++;
-				if (u.isOnline()) {
-					list += "online \n";
-				} else {
-					list += "offline \n";
-				}
-			}
-		}
-		return list;
-	}
+                // Start threads
+                threadPool.execute(tcpListener);
+                threadPool.execute(udpListener);
+                threadPool.execute(shell);
 
-	@Override
-	@Command
-	public String exit() throws IOException {
-		try {
-			shell.close();
-			setOffline();
+                logger.info("ChatServer started ...");
 
-			udpSocket.close();
-			tcpSocket.close();
+                threadPool.shutdown();
 
-		} catch (Exception e) {
-			logger.error(e.getMessage());
-			return "Error occured druing ChatServer shutdown.";
-		}
+            } catch (MissingResourceException e) {
+                logger.error("user.properties file not found.");
+            } catch (BindException e) {
+                logger.error("UDP port: " + udpPort + " or TCP port: " + tcpPort + " are already in use.");
+            } catch (IOException e) {
+                logger.error(e.getMessage());
+            }
+        }
+    }
 
-		return "Shutting down ChatServer ...";
-	}
+    @Override
+    @Command
+    public String users() throws IOException {
 
-	public boolean isOnline() {
-		return online;
-	}
+        String list = "";
+        synchronized (users) {
+            if (users.isEmpty()) {
+                list = "User list is empty!";
+            }
 
-	public void setOffline() {
-		this.online = false;
-	}
+            int num = 1;
+            for (User u : users.values()) {
+                list += num + "." + " " + u.getUserName() + " ";
+                num++;
+                if (u.isOnline()) {
+                    list += "online \n";
+                } else {
+                    list += "offline \n";
+                }
+            }
+        }
+        return list;
+    }
 
-	public Map<String, User> getUsers() {
-		return users;
-	}
+    @Override
+    @Command
+    public String exit() throws IOException {
+        try {
+            shell.close();
+            setOffline();
 
-	public List<TcpWorker> getTcpWorkerList() {
-		return tcpWorkerList;
-	}
+            udpSocket.close();
+            tcpSocket.close();
 
-	public int getTcpPort() {
-		return tcpPort;
-	}
+        } catch (Exception e) {
+            logger.error(e.getMessage());
+            return "Error occured druing ChatServer shutdown.";
+        }
 
-	public int getUdpPort() {
-		return udpPort;
-	}
+        return "Shutting down ChatServer ...";
+    }
 
-	public Config getConfig() {
-		return config;
-	}
+    public boolean isOnline() {
+        return online;
+    }
 
-	public static void main(String[] args) throws Exception {
-		ComponentFactory factory = new ComponentFactory();
+    public void setOffline() {
+        this.online = false;
+    }
 
-		IChatserverCli chatsever = factory.createChatserver("Server", System.in, System.out);
+    public Map<String, User> getUsers() {
+        return users;
+    }
 
-		// Start Server
-		new Thread((Runnable) chatsever).start();
-	}
+    public List<TcpWorker> getTcpWorkerList() {
+        return tcpWorkerList;
+    }
+
+    public int getTcpPort() {
+        return tcpPort;
+    }
+
+    public int getUdpPort() {
+        return udpPort;
+    }
+
+    public Config getConfig() {
+        return config;
+    }
+
+    public INameserverForChatserver getRootServer() {
+        return rootServer;
+    }
+
+    public static void main(String[] args) throws Exception {
+        ComponentFactory factory = new ComponentFactory();
+
+        IChatserverCli chatsever = factory.createChatserver("Server", System.in, System.out);
+
+        // Start Server
+        new Thread((Runnable) chatsever).start();
+    }
 }

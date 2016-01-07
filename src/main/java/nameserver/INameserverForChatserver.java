@@ -13,13 +13,10 @@ import nameserver.exceptions.InvalidDomainException;
  */
 public interface INameserverForChatserver extends Remote {
 
-	public void registerUser(String username, String address)
-			throws RemoteException, AlreadyRegisteredException,
-			InvalidDomainException;
+    public void registerUser(String username, String address) throws RemoteException, AlreadyRegisteredException, InvalidDomainException;
 
-	public INameserverForChatserver getNameserver(String zone)
-			throws RemoteException;
+    public INameserverForChatserver getNameserver(String zone) throws RemoteException;
 
-	public String lookup(String username) throws RemoteException;
+    public String lookup(String username) throws RemoteException;
 
 }
